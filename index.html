@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<meta name="theme-color" content="#0d0d10"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<title>TallerCtrl</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+body{background:#0d0d10;color:#f0ede8;font-family:sans-serif;min-height:100vh;}
+#app{max-width:500px;margin:0 auto;}
+button,input,select{font-family:inherit;}
+input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+// VERSION 10 - VANILLA JS PURO
+
+// STORAGE
+function cargar(k,d){try{var v=localStorage.getItem(k);return v?JSON.parse(v):d;}catch(e){return d;}}
+function guardar(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
+
+// DATOS
+var ESTADO = {
+  sesion: null,
+  pinAdmin: cargar('pinAdmin','1234'),
+  pines: cargar('pines',{}),
+  operarias: cargar('operarias',['Leidy Aeronave','Yenny Castrillon','Jurany Castrillon','Lina Pino','Helena Jaramillo','Anahis Merlo','Yuliana Gallego','Maryi Luney','Yesica Perez','Jessica Montes']),
+  lotes: cargar('lotes',[]),
+  registros: cargar('registros',[]),
+  deds: cargar('deds',{}),
+  tab: 'ops',
+  verOp: null,
+  verLote: null
+};
+
+function dinero(n){return '$'+Number(n||0).toLocaleString('es-CO');}
+function nros(n){return Number(n||0).toLocaleString('es-CO');}
+function hoy(){return new Date().toLocaleDateString('es-CO');}
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2);}
+
+function actualizar(cambios){
+  for(var k in cambios){
+    ESTADO[k]=cambios[k];
+    if(['pinAdmin','pines','operarias','lotes','registros','deds'].indexOf(k)>=0){
+      guardar(k,cambios[k]);
+    }
+  }
+  dibujar();
+}
+
+// DIBUJAR
+function dibujar(){
+  var app=document.getElementById('app');
+  if(!app) return;
+  app.innerHTML='';
+  if(!ESTADO.sesion){ app.appendChild(dibujarLogin()); return; }
+  if(ESTADO.sesion.rol==='op'){ app.appendChild(dibujarVistaOp()); return; }
+  app.appendChild(dibujarAdmin());
+}
+
+// LOGIN
+function dibujarLogin(){
+  var pin='';
+  var div=document.createElement('div');
+  div.style='min-height:100vh;background:#0d0d10;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;';
+  
+  div.innerHTML='<div style="font-size:26px;font-weight:800;color:#f5c518;margin-bottom:4px;">🧵 TallerCtrl</div>'+
+    '<div style="font-size:13px;color:#e07b30;font-weight:700;margin-bottom:40px;">LEXBAN</div>';
+
+  var caja=document.createElement('div');
+  caja.style='background:#16161e;border:1px solid #252535;border-radius:20px;padding:28px;width:100%;max-width:300px;';
+  
+  caja.innerHTML='<div style="font-size:13px;color:#666;text-align:center;margin-bottom:20px;">Ingresa tu PIN de 4 dígitos</div>';
+  
+  // Puntos
+  var puntos=document.createElement('div');
+  puntos.style='display:flex;justify-content:center;gap:16px;margin-bottom:28px;';
+  for(var i=0;i<4;i++){
+    var p=document.createElement('div');
+    p.id='punto'+i;
+    p.style='width:18px;height:18px;border-radius:50%;background:#252535;transition:background 0.15s;';
+    puntos.appendChild(p);
+  }
+  caja.appendChild(puntos);
+
+  // Error
+  var errDiv=document.createElement('div');
+  errDiv.style='color:#e05555;font-size:12px;text-align:center;min-height:18px;margin-bottom:8px;';
+  
+  function actualizarPuntos(){
+    for(var i=0;i<4;i++){
+      document.getElementById('punto'+i).style.background=i<pin.length?'#f5c518':'#252535';
+    }
+  }
+
+  function intentar(){
+    if(pin===ESTADO.pinAdmin){actualizar({sesion:{rol:'admin'}});return;}
+    var encontrada=null;
+    var ps=ESTADO.pines;
+    for(var nombre in ps){ if(ps[nombre]===pin){ encontrada=nombre; break; } }
+    if(encontrada){actualizar({sesion:{rol:'op',nombre:encontrada}});return;}
+    errDiv.textContent='⚠️ PIN incorrecto';
+    pin='';actualizarPuntos();
+  }
+
+  // Teclado
+  var teclado=document.createElement('div');
+  teclado.style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;';
+  
+  function crearBtn(txt, accion){
+    var b=document.createElement('button');
+    b.textContent=txt;
+    b.style='background:#1c1c26;border:1px solid #252535;border-radius:12px;color:#f0ede8;font-size:22px;font-weight:700;padding:14px 0;cursor:pointer;font-family:inherit;';
+    b.onclick=accion;
+    return b;
+  }
+
+  [1,2,3,4,5,6,7,8,9].forEach(function(d){
+    teclado.appendChild(crearBtn(String(d),function(){
+      if(pin.length>=4) return;
+      pin+=String(d); actualizarPuntos();
+      if(pin.length===4) setTimeout(intentar,150);
+    }));
+  });
+  
+  teclado.appendChild(document.createElement('div'));
+  teclado.appendChild(crearBtn('0',function(){
+    if(pin.length>=4) return;
+    pin+='0'; actualizarPuntos();
+    if(pin.length===4) setTimeout(intentar,150);
+  }));
+  teclado.appendChild(crearBtn('⌫',function(){
+    pin=pin.slice(0,-1); actualizarPuntos(); errDiv.textContent='';
+  }));
+  
+  caja.appendChild(teclado);
+  caja.appendChild(errDiv);
+  div.appendChild(caja);
+  return div;
+}
+
+// VISTA OPERARIA
+function dibujarVistaOp(){
+  var nombre=ESTADO.sesion.nombre;
+  var wrap=document.createElement('div');
+  wrap.style='min-height:100vh;background:#0d0d10;max-width:500px;margin:0 auto;padding-bottom:40px;';
+  
+  // Header
+  var hdr=document.createElement('div');
+  hdr.style='background:#16161e;border-bottom:2px solid #f5c518;padding:14px 16px 10px;display:flex;justify-content:space-between;align-items:center;';
+  hdr.innerHTML='<div><div style="font-size:18px;font-weight:800;color:#f5c518;">🧵 TallerCtrl</div><div style="font-size:12px;color:#e07b30;font-weight:700;">'+nombre+'</div></div>';
+  var btnSalir=document.createElement('button');
+  btnSalir.textContent='Salir';
+  btnSalir.style='background:none;border:1px solid #252535;color:#666;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;';
+  btnSalir.onclick=function(){actualizar({sesion:null});};
+  hdr.appendChild(btnSalir);
+  wrap.appendChild(hdr);
+  
+  var regs=ESTADO.registros.filter(function(r){return r.operaria===nombre;});
+  wrap.appendChild(dibujarHojaOp(nombre,regs,false));
+  return wrap;
+}
+
+// HOJA OPERARIA
+function dibujarHojaOp(nombre,regs,esAdmin,alVolver){
+  var wrap=document.createElement('div');
+  wrap.style='padding:14px 12px 0;';
+  
+  // Header
+  var hRow=document.createElement('div');
+  hRow.style='display:flex;align-items:center;gap:10px;margin-bottom:14px;';
+  if(alVolver){
+    var btnV=document.createElement('button');
+    btnV.textContent='←';
+    btnV.style='background:none;border:none;color:#f5c518;font-size:20px;cursor:pointer;padding:0;';
+    btnV.onclick=alVolver;
+    hRow.appendChild(btnV);
+  }
+  var inf=document.createElement('div');
+  inf.innerHTML='<div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:1px;">Planilla</div><div style="font-weight:800;font-size:17px;color:#e07b30;">'+nombre+'</div>';
+  hRow.appendChild(inf);
+  var fecha=document.createElement('div');
+  fecha.style='margin-left:auto;font-size:11px;color:#666;';
+  fecha.textContent=hoy();
+  hRow.appendChild(fecha);
+  wrap.appendChild(hRow);
+
+  // Formulario nueva fila
+  wrap.appendChild(dibujarFormFila(nombre));
+
+  // Filas registradas
+  var porLote={};
+  regs.forEach(function(r){ if(!porLote[r.lote])porLote[r.lote]=[]; porLote[r.lote].push(r); });
+  
+  if(Object.keys(porLote).length===0){
+    var vacio=document.createElement('div');
+    vacio.style='text-align:center;color:#666;padding:30px;font-size:13px;';
+    vacio.textContent='Sin filas. Agrega la primera arriba.';
+    wrap.appendChild(vacio);
+  }
+
+  Object.keys(porLote).forEach(function(lN){
+    var filas=porLote[lN];
+    var total=filas.reduce(function(s,r){return s+Number(r.cant)*Number(r.precio);},0);
+    var card=document.createElement('div');
+    card.style='background:#16161e;border:1px solid #252535;border-radius:12px;padding:14px;margin-bottom:12px;';
+    
+    var loteHdr=document.createElement('div');
+    loteHdr.style='display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;';
+    loteHdr.innerHTML='<div style="font-weight:700;font-size:14px;color:#e07b30;">Lote '+lN+'</div><span style="background:#e07b3022;color:#e07b30;border:1px solid #e07b3044;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:700;">'+dinero(total)+'</span>';
+    card.appendChild(loteHdr);
+
+    filas.forEach(function(r){
+      var fila=document.createElement('div');
+      fila.style='display:grid;grid-template-columns:1fr 55px 45px 55px 65px 30px;gap:4px;align-items:center;padding:5px 0;border-bottom:1px solid #25253522;';
+      fila.innerHTML='<div style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+r.op+'</div>'+
+        '<div style="font-size:11px;color:#666;">'+(r.color||'—')+'</div>'+
+        '<div style="font-size:11px;color:#666;">'+(r.talla||'—')+'</div>'+
+        '<div style="font-size:12px;text-align:right;font-weight:700;">'+nros(r.cant)+'</div>'+
+        '<div style="font-size:12px;text-align:right;color:#4caf7d;font-weight:700;">'+dinero(Number(r.cant)*Number(r.precio))+'</div>';
+      var btnEl=document.createElement('button');
+      btnEl.textContent='✕';
+      btnEl.style='background:none;border:none;color:#e0555588;font-size:13px;cursor:pointer;';
+      (function(id){btnEl.onclick=function(){if(confirm('¿Eliminar?'))actualizar({registros:ESTADO.registros.filter(function(x){return x.id!==id;})});};})(r.id);
+      fila.appendChild(btnEl);
+      card.appendChild(fila);
+    });
+    wrap.appendChild(card);
+  });
+
+  // Pago (solo admin)
+  if(esAdmin && regs.length>0){
+    var sub=regs.reduce(function(s,r){return s+Number(r.cant)*Number(r.precio);},0);
+    var ded=ESTADO.deds[nombre]||{cot:0,dan:0,des:0};
+    var dT=Number(ded.cot||0)+Number(ded.dan||0)+Number(ded.des||0);
+    var pago=sub-dT;
+    var pagoCard=document.createElement('div');
+    pagoCard.style='background:#16161e;border:1px solid #f5c51833;border-radius:12px;padding:14px;margin-bottom:12px;';
+    pagoCard.innerHTML='<div style="display:flex;justify-content:space-between;font-size:14px;padding-bottom:10px;border-bottom:1px solid #252535;"><span style="color:#666;font-weight:600;">SUBTOTAL</span><span style="font-weight:800;">'+dinero(sub)+'</span></div>'+
+      '<div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:1px;margin:10px 0 8px;">Deducciones</div>';
+    [['cot','Cotizaciones'],['dan','Daños'],['des','Descuento']].forEach(function(par){
+      var k=par[0],lb=par[1];
+      var row=document.createElement('div');
+      row.style='display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;';
+      row.innerHTML='<span style="font-size:13px;color:#666;">'+lb+'</span>';
+      var inp=document.createElement('input');
+      inp.type='number';inp.min='0';inp.placeholder='0';
+      inp.style='width:110px;background:#0d0d10;border:1px solid #252535;border-radius:6px;color:#f0ede8;padding:5px 9px;font-size:13px;outline:none;text-align:right;font-family:inherit;';
+      inp.value=ded[k]||'';
+      (function(campo){inp.oninput=function(){var nd=Object.assign({},ESTADO.deds[nombre]||{cot:0,dan:0,des:0});nd[campo]=Number(inp.value||0);var nd2=Object.assign({},ESTADO.deds);nd2[nombre]=nd;guardar('deds',nd2);ESTADO.deds=nd2;};})(k);
+      row.appendChild(inp);
+      pagoCard.appendChild(row);
+    });
+    pagoCard.innerHTML+='<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding:12px 14px;background:#4caf7d18;border:1px solid #4caf7d44;border-radius:10px;"><span style="font-weight:800;font-size:16px;color:#4caf7d;">PAGO</span><span style="font-weight:800;font-size:22px;color:#4caf7d;">'+dinero(pago)+'</span></div>';
+    wrap.appendChild(pagoCard);
+  }
+
+  if(!esAdmin && regs.length>0){
+    var msg=document.createElement('div');
+    msg.style='background:#4caf7d18;border:1px solid #4caf7d44;border-radius:10px;padding:10px 14px;margin-bottom:12px;text-align:center;';
+    msg.innerHTML='<div style="font-size:12px;color:#4caf7d;font-weight:700;">✅ '+regs.length+' filas registradas</div><div style="font-size:11px;color:#666;margin-top:2px;">Tu pago lo verás el jueves en la noche</div>';
+    wrap.appendChild(msg);
+  }
+
+  wrap.appendChild(document.createElement('div')).style='height:20px;';
+  return wrap;
+}
+
+// FORMULARIO NUEVA FILA
+function dibujarFormFila(nombre){
+  var card=document.createElement('div');
+  card.style='background:#16161e;border:1px solid #252535;border-radius:12px;padding:14px;margin-bottom:12px;';
+  
+  var titulo=document.createElement('div');
+  titulo.style='font-size:12px;color:#f5c518;font-weight:700;margin-bottom:10px;';
+  titulo.textContent='➕ Nueva fila';
+  card.appendChild(titulo);
+
+  // Lote
+  var lblLote=document.createElement('div');
+  lblLote.style='font-size:10px;color:#666;margin-bottom:3px;';
+  lblLote.textContent='LOTE';
+  card.appendChild(lblLote);
+  
+  var selLote=document.createElement('select');
+  selLote.style='background:#0d0d10;border:1px solid #252535;border-radius:6px;color:#f0ede8;outline:none;padding:9px 11px;font-size:13px;width:100%;margin-bottom:8px;font-family:inherit;';
+  selLote.innerHTML='<option value="">Seleccionar lote...</option>';
+  ESTADO.lotes.forEach(function(l){
+    var opt=document.createElement('option');
+    opt.value=l.nombre;opt.textContent=l.nombre;
+    selLote.appendChild(opt);
+  });
+  card.appendChild(selLote);
+
+  // Operación
+  var lblOp=document.createElement('div');
+  lblOp.style='font-size:10px;color:#666;margin-bottom:3px;';
+  lblOp.textContent='OPERACIÓN';
+  card.appendChild(lblOp);
+
+  var selOp=document.createElement('select');
+  selOp.style='background:#0d0d10;border:1px solid #252535;border-radius:6px;color:#f0ede8;outline:none;padding:9px 11px;font-size:13px;width:100%;margin-bottom:8px;font-family:inherit;';
+  selOp.innerHTML='<option value="">Seleccionar operación...</option>';
+  selOp.disabled=true;
+  card.appendChild(selOp);
+
+  // Precio
+  var precioDiv=document.createElement('div');
+  precioDiv.style='background:#1c1c26;border-radius:8px;padding:6px 10px;margin-bottom:8px;display:none;justify-content:space-between;align-items:center;';
+  precioDiv.innerHTML='<span style="font-size:12px;color:#666;">Precio fijo:</span><span id="precioFijo_'+nombre+'" style="font-size:14px;font-weight:800;color:#f5c518;"></span>';
+  card.appendChild(precioDiv);
+
+  // Color y talla
+  var row2=document.createElement('div');
+  row2.style='display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;';
+  
+  var selColor=document.createElement('select');
+  selColor.style='background:#0d0d10;border:1px solid #252535;border-radius:6px;color:#f0ede8;outline:none;padding:6px 8px;font-size:12px;width:100%;font-family:inherit;';
+  selColor.innerHTML='<option value="">Color...</option>';
+  
+  var selTalla=document.createElement('select');
+  selTalla.style='background:#0d0d10;border:1px solid #252535;border-radius:6px;color:#f0ede8;outline:none;padding:6px 8px;font-size:12px;width:100%;font-family:inherit;';
+  selTalla.innerHTML='<option value="">Talla...</option>';
+
+  var d1=document.createElement('div');d1.innerHTML='<div style="font-size:10px;color:#666;margin-bottom:3px;">COLOR</div>';d1.appendChild(selColor);
+  var d2=document.createElement('div');d2.innerHTML='<div style="font-size:10px;color:#666;margin-bottom:3px;">TALLA</div>';d2.appendChild(selTalla);
+  row2.appendChild(d1);row2.appendChild(d2);
+  card.appendChild(row2);
+
+  // Cantidad
+  var lblCant=document.createElement('div');
+  lblCant.style='font-size:10px;color:#666;margin-bottom:3px;';
+  lblCant.textContent='CANTIDAD';
+  card.appendChild(lblCant);
+
+  var inpCant=document.createElement('input');
+  inpCant.type='number';inpCant.min='0';inpCant.placeholder='0';
+  inpCant.style='background:#0d0d10;border:1px solid #252535;border-radius:6px;color:#f0ede8;outline:none;padding:9px 11px;font-size:14px;width:100%;margin-bottom:8px;font-family:inherit;text-align:right;';
+  card.appendChild(inpCant);
+
+  // Error
+  var errDiv=document.createElement('div');
+  errDiv.style='color:#e05555;font-size:12px;margin-bottom:8px;min-height:18px;';
+  card.appendChild(errDiv);
+
+  // Eventos
+  selLote.onchange=function(){
+    var lObj=ESTADO.lotes.find(function(l){return l.nombre===selLote.value;});
+    selOp.innerHTML='<option value="">Seleccionar operación...</option>';
+    if(lObj){
+      lObj.operaciones.forEach(function(o){
+        var opt=document.createElement('option');
+        opt.value=o.nombre;opt.textContent=o.nombre+' · '+dinero(o.precioUni);
+        selOp.appendChild(opt);
+      });
+      selOp.disabled=false;
+    } else { selOp.disabled=true; }
+    selColor.innerHTML='<option value="">Color...</option>';
+    selTalla.innerHTML='<option value="">Talla...</option>';
+    precioDiv.style.display='none';
+    inpCant.value='';
+  };
+
+  selOp.onchange=function(){
+    var lObj=ESTADO.lotes.find(function(l){return l.nombre===selLote.value;});
+    var oObj=lObj&&lObj.operaciones.find(function(o){return o.nombre===selOp.value;});
+    selColor.innerHTML='<option value="">Color...</option>';
+    selTalla.innerHTML='<option value="">Talla...</option>';
+    if(oObj){
+      precioDiv.style.display='flex';
+      var pEl=document.getElementById('precioFijo_'+nombre);
+      if(pEl) pEl.textContent=dinero(oObj.precioUni)+'/und';
+      var colores=[];
+      (oObj.items||[]).forEach(function(it){if(it.color&&colores.indexOf(it.color)<0)colores.push(it.color);});
+      colores.forEach(function(c){var opt=document.createElement('option');opt.value=c;opt.textContent=c;selColor.appendChild(opt);});
+    } else { precioDiv.style.display='none'; }
+    inpCant.value='';
+  };
+
+  selColor.onchange=function(){
+    var lObj=ESTADO.lotes.find(function(l){return l.nombre===selLote.value;});
+    var oObj=lObj&&lObj.operaciones.find(function(o){return o.nombre===selOp.value;});
+    selTalla.innerHTML='<option value="">Talla...</option>';
+    if(oObj){
+      (oObj.items||[]).filter(function(it){return !selColor.value||it.color===selColor.value;}).forEach(function(it){
+        if(it.talla){var opt=document.createElement('option');opt.value=it.talla;opt.textContent=it.talla;selTalla.appendChild(opt);}
+      });
+    }
+  };
+
+  // Botón guardar
+  var btnG=document.createElement('button');
+  btnG.textContent='Agregar fila';
+  btnG.style='background:#f5c518;color:#0d0d10;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:800;cursor:pointer;width:100%;font-family:inherit;';
+  btnG.onclick=function(){
+    if(!selLote.value||!selOp.value||!inpCant.value){errDiv.textContent='⚠️ Completa lote, operación y cantidad';return;}
+    var cant=Number(inpCant.value);
+    if(cant<=0){errDiv.textContent='⚠️ Cantidad debe ser mayor a 0';return;}
+    var lObj=ESTADO.lotes.find(function(l){return l.nombre===selLote.value;});
+    var oObj=lObj&&lObj.operaciones.find(function(o){return o.nombre===selOp.value;});
+    var precio=oObj?oObj.precioUni:0;
+    var nuevo={id:uid(),operaria:nombre,lote:selLote.value,op:selOp.value,color:selColor.value,talla:selTalla.value,cant:cant,precio:precio,fecha:hoy(),fechaISO:new Date().toISOString()};
+    actualizar({registros:ESTADO.registros.concat([nuevo])});
+  };
+  card.appendChild(btnG);
+  return card;
+}
+
+// ADMIN
+function dibujarAdmin(){
+  var wrap=document.createElement('div');
+  wrap.style='min-height:100vh;background:#0d0d10;max-width:500px;margin:0 auto;padding-bottom:90px;';
+
+  // Header
+  var hdr=document.createElement('div');
+  hdr.style='background:#16161e;border-bottom:2px solid #f5c518;padding:13px 16px 10px;display:flex;justify-content:space-between;align-items:center;';
+  hdr.innerHTML='<div><div style="font-size:18px;font-weight:800;color:#f5c518;">🧵 TallerCtrl · LEXBAN</div><div style="font-size:11px;color:#666;">'+hoy()+'</div></div>';
+  var btnS=document.createElement('button');
+  btnS.textContent='Salir';
+  btnS.style='background:none;border:1px solid #252535;color:#666;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit;';
+  btnS.onclick=function(){actualizar({sesion:null,tab:'ops',verOp:null,verLote:null});};
+  hdr.appendChild(btnS);
+  wrap.appendChild(hdr);
+
+  // Nav
+  var nav=document.createElement('div');
+  nav.style='display:flex;background:#16161e;border-bottom:1px solid #252535;position:sticky;top:0;z-index:10;';
+  [['ops','👷 Operarias'],['refs','📦 Referencias'],['res','📊 Resumen'],['cfg','⚙️ Config']].forEach(function(item){
+    var btn=document.createElement('button');
+    var activo=ESTADO.tab===item[0];
+    btn.textContent=item[1];
+    btn.style='flex:1;padding:11px 2px;border:none;background:none;font-size:11px;cursor:pointer;font-family:inherit;'+(activo?'color:#f5c518;font-weight:700;border-bottom:2px solid #f5c518;':'color:#666;font-weight:400;border-bottom:2px solid transparent;');
+    (function(id){btn.onclick=function(){actualizar({tab:id,verOp:null,verLote:null});};})(item[0]);
+    nav.appendChild(btn);
+  });
+  wrap.appendChild(nav);
+
+  // Contenido
+  var contenido=document.createElement('div');
+  try{
+    if(ESTADO.tab==='ops') contenido.appendChild(dibujarTabOps());
+    else if(ESTADO.tab==='refs') contenido.appendChild(dibujarTabRefs());
+    else if(ESTADO.tab==='res') contenido.appendChild(dibujarTabResumen());
+    else if(ESTADO.tab==='cfg') contenido.appendChild(dibujarTabCfg());
+  }catch(e){
+    contenido.innerHTML='<div style="padding:20px;color:#e05555;font-size:12px;">Error: '+e.message+'</div>';
+  }
+  wrap.appendChild(contenido);
+  return wrap;
+}
+
+// TAB OPERARIAS
+function dibujarTabOps(){
+  if(ESTADO.verOp){
+    var regs=ESTADO.registros.filter(function(r){return r.operaria===ESTADO.verOp;});
+    return dibujarHojaOp(ESTADO.verOp,regs,true,function(){actualizar({verOp:null});});
+  }
+  var wrap=document.createElement('div');
+  wrap.style='padding:14px 14px 0;';
+  var subtit=document.createElement('div');
+  subtit.style='font-size:12px;color:#666;margin-bottom:12px;';
+  subtit.textContent='Toca una operaria para ver su planilla';
+  wrap.appendChild(subtit);
+  ESTADO.operarias.forEach(function(or){
+    var regs=ESTADO.registros.filter(function(r){return r.operaria===or;});
+    var sub=regs.reduce(function(s,r){return s+Number(r.cant||0)*Number(r.precio||0);},0);
+    var ded=ESTADO.deds[or]||{cot:0,dan:0,des:0};
+    var pago=sub-Number(ded.cot||0)-Number(ded.dan||0)-Number(ded.des||0);
+    var card=document.createElement('div');
+    card.style='background:#16161e;border:1px solid #252535;border-radius:12px;padding:14px;margin-bottom:12px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;';
+    card.innerHTML='<div><div style="font-weight:700;font-size:15px;">'+or+'</div><div style="font-size:11px;color:#666;">'+regs.length+' filas</div></div>';
+    var der=document.createElement('div');
+    der.style='text-align:right;';
+    if(pago>0){
+      der.innerHTML='<span style="background:#4caf7d22;color:#4caf7d;border:1px solid #4caf7d44;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:700;">'+dinero(pago)+'</span>';
+    } else {
+      der.innerHTML='<span style="color:#666;font-size:12px;">Sin datos</span>';
+    }
+    der.innerHTML+='<div style="font-size:11px;color:#f5c518;margin-top:4px;">→ planilla</div>';
+    card.appendChild(der);
+    (function(nombre){card.onclick=function(){actualizar({verOp:nombre});};})(or);
+    wrap.appendChild(card);
+  });
+  wrap.appendChild(document.createElement('div')).style='height:20px;';
+  return wrap;
+}
+
+// TAB REFERENCIAS
+function dibujarTabRefs(){
+  if(ESTADO.verLote){
+    var lote=ESTADO.lotes.find(function(l){return l.id===ESTADO.verLote;});
+    if(lote) return dibujarHojaRef(lote);
+  }
+  var wrap=document.createElement('div');
+  wrap.style='padding:14px 14px 0;';
+  
+  var topRow=document.createElement('div');
+  topRow.style='display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;';
+  topRow.innerHTML='<div style="font-weight:800;font-size:16px;">Lotes / Referencias</div>';
+  var btnNuevo=document.createElement('button');
+  btnNuevo.textContent='+ Nuevo lote';
+  btnNuevo.style='background:#f5c518;color:#0d0d10;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;';
+  btnNuevo.onclick=function(){
+    var nom=prompt('Código del lote (ej: DS-0001):');
+    if(!nom||!nom.trim()) return;
+    var lote={id:uid(),nombre:nom.trim().toUpperCase(),fecha:hoy(),operaciones:[]};
+    var masOps=true;
+    while(masOps){
+      var opN=prompt('Nombre de operación (deja vacío para terminar):');
+      if(!opN||!opN.trim()){masOps=false;break;}
+      var opP=Number(prompt('Precio por unidad de "'+opN+'":'));
+      var items=[];
+      var masIt=true;
+      while(masIt){
+        var color=prompt('Color (deja vacío para terminar):');
+        if(!color||!color.trim()){masIt=false;break;}
+        var talla=prompt('Talla:');
+        var total=Number(prompt('Cantidad total '+color+' '+talla+':'));
+        items.push({color:color.trim(),talla:talla.trim(),totalUnidades:total});
+      }
+      lote.operaciones.push({nombre:opN.trim(),precioUni:opP,items:items});
+    }
+    actualizar({lotes:ESTADO.lotes.concat([lote])});
+  };
+  topRow.appendChild(btnNuevo);
+  wrap.appendChild(topRow);
+
+  if(!ESTADO.lotes.length){
+    var vacio=document.createElement('div');
+    vacio.style='text-align:center;color:#666;padding:40px;font-size:13px;';
+    vacio.textContent='No hay lotes. Crea el primero.';
+    wrap.appendChild(vacio);
+  }
+
+  ESTADO.lotes.forEach(function(l){
+    var regs=ESTADO.registros.filter(function(r){return r.lote===l.nombre;});
+    var tI=l.operaciones.reduce(function(s,op){return s+op.items.reduce(function(ss,it){return ss+Number(it.totalUnidades||0);},0);},0);
+    var tR=regs.reduce(function(s,r){return s+Number(r.cant||0);},0);
+    var pct=tI>0?Math.round(tR/tI*100):0;
+    var color=pct>=100?'#4caf7d':pct>0?'#f5c518':'#666';
+    var card=document.createElement('div');
+    card.style='background:#16161e;border:1px solid #252535;border-radius:12px;padding:14px;margin-bottom:12px;cursor:pointer;';
+    card.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'+
+      '<div><div style="font-weight:700;font-size:15px;">Lote '+l.nombre+'</div><div style="font-size:11px;color:#666;">'+l.fecha+' · '+l.operaciones.length+' ops</div></div>'+
+      '<div style="text-align:right;"><span style="background:'+color+'22;color:'+color+';border:1px solid '+color+'44;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:700;">'+pct+'% registrado</span>'+
+      '<div style="font-size:11px;color:#f5c518;margin-top:4px;">→ ver hoja</div></div></div>'+
+      '<div style="background:#1c1c26;border-radius:6px;height:6px;overflow:hidden;"><div style="width:'+Math.min(100,pct)+'%;height:100%;background:'+color+';border-radius:6px;"></div></div>';
+    (function(id){card.onclick=function(){actualizar({verLote:id});};})(l.id);
+    wrap.appendChild(card);
+  });
+  wrap.appendChild(document.createElement('div')).style='height:20px;';
+  return wrap;
+}
+
+// HOJA REFERENCIA
+function dibujarHojaRef(lote){
+  var wrap=document.createElement('div');
+  wrap.style='padding:14px 12px 0;';
+  var hRow=document.createElement('div');
+  hRow.style='display:flex;align-items:center;gap:10px;margin-bottom:14px;';
+  var btnV=document.createElement('button');
+  btnV.textContent='←';btnV.style='background:none;border:none;color:#f5c518;font-size:20px;cursor:pointer;padding:0;';
+  btnV.onclick=function(){actualizar({verLote:null});};
+  hRow.appendChild(btnV);
+  hRow.innerHTML+='<div><div style="font-size:11px;color:#666;text-transform:uppercase;">Hoja de referencia</div><div style="font-weight:800;font-size:17px;">Lote '+lote.nombre+'</div><div style="font-size:11px;color:#666;">'+lote.fecha+'</div></div>';
+  wrap.appendChild(hRow);
+  var regs=ESTADO.registros.filter(function(r){return r.lote===lote.nombre;});
+  lote.operaciones.forEach(function(op){
+    var card=document.createElement('div');
+    card.style='background:#16161e;border:1px solid #252535;border-radius:12px;padding:14px;margin-bottom:12px;';
+    card.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;"><div style="font-weight:700;font-size:14px;color:#e07b30;">'+op.nombre+'</div><span style="font-size:12px;color:#f5c518;font-weight:700;">'+dinero(op.precioUni)+'/und</span></div>';
+    op.items.forEach(function(it){
+      var rI=regs.filter(function(r){return r.op===op.nombre&&(!it.color||r.color===it.color)&&(!it.talla||r.talla===it.talla);});
+      var suma=rI.reduce(function(s,r){return s+Number(r.cant||0);},0);
+      var ok=it.totalUnidades>0&&suma===it.totalUnidades;
+      var exc=suma>it.totalUnidades&&it.totalUnidades>0;
+      var pct=it.totalUnidades>0?Math.min(100,Math.round(suma/it.totalUnidades*100)):0;
+      var col=ok?'#4caf7d':exc?'#e05555':'#f5c518';
+      var itDiv=document.createElement('div');
+      itDiv.style='background:#1c1c26;border-radius:8px;padding:10px;margin-bottom:8px;border:1px solid '+(ok?'#4caf7d44':exc?'#e0555544':'#252535')+';';
+      itDiv.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'+
+        '<div style="font-size:12px;font-weight:700;">'+(it.color||'Sin color')+' · T'+(it.talla||'Única')+'</div>'+
+        '<span style="background:'+col+'22;color:'+col+';border:1px solid '+col+'44;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:700;">'+nros(suma)+'/'+nros(it.totalUnidades)+' und</span></div>'+
+        '<div style="background:#16161e;border-radius:4px;height:6px;overflow:hidden;margin-bottom:6px;"><div style="width:'+pct+'%;height:100%;background:'+col+';border-radius:4px;"></div></div>';
+      rI.forEach(function(r){
+        var fila=document.createElement('div');
+        fila.style='display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid #25253522;';
+        fila.innerHTML='<span style="color:#666;">'+r.operaria+'</span><span style="font-weight:700;">'+nros(r.cant)+' und</span>';
+        itDiv.appendChild(fila);
+      });
+      if(ok) itDiv.innerHTML+='<div style="font-size:11px;color:#4caf7d;text-align:right;margin-top:4px;">✅ Completo</div>';
+      else if(exc) itDiv.innerHTML+='<div style="font-size:11px;color:#e05555;text-align:right;margin-top:4px;">⚠️ Excede por '+nros(suma-it.totalUnidades)+'</div>';
+      else if(it.totalUnidades>0) itDiv.innerHTML+='<div style="font-size:11px;color:#f5c518;text-align:right;margin-top:4px;">⏳ Faltan '+nros(it.totalUnidades-suma)+'</div>';
+      card.appendChild(itDiv);
+    });
+    wrap.appendChild(card);
+  });
+  var btnDel=document.createElement('button');
+  btnDel.textContent='🗑 Eliminar lote';
+  btnDel.style='width:100%;background:transparent;border:1px solid #e0555544;color:#e05555;border-radius:8px;padding:10px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px;';
+  (function(id,nom){btnDel.onclick=function(){if(confirm('¿Eliminar lote '+nom+'?'))actualizar({lotes:ESTADO.lotes.filter(function(l){return l.id!==id;}),registros:ESTADO.registros.filter(function(r){return r.lote!==nom;}),verLote:null});};})(lote.id,lote.nombre);
+  wrap.appendChild(btnDel);
+  wrap.appendChild(document.createElement('div')).style='height:20px;';
+  return wrap;
+}
+
+// TAB RESUMEN
+function dibujarTabResumen(){
+  var corte=function(){var n=new Date(),d=n.getDay(),df=d>=4?d-4:d+3,j=new Date(n);j.setDate(n.getDate()-df);j.setHours(23,59,59,999);return j.toISOString();}();
+  var rC=ESTADO.registros.filter(function(r){return r.fechaISO?r.fechaISO<=corte:true;});
+  var rN=ESTADO.registros.filter(function(r){return r.fechaISO&&r.fechaISO>corte;});
+  var datos=ESTADO.operarias.map(function(or){
+    var regs=rC.filter(function(r){return r.operaria===or;});
+    var sub=regs.reduce(function(s,r){return s+Number(r.cant)*Number(r.precio);},0);
+    var ded=ESTADO.deds[or]||{cot:0,dan:0,des:0};
+    var dT=Number(ded.cot||0)+Number(ded.dan||0)+Number(ded.des||0);
+    var nv=rN.filter(function(r){return r.operaria===or;}).reduce(function(s,r){return s+Number(r.cant)*Number(r.precio);},0);
+    return{nombre:or,sub:sub,dT:dT,pago:sub-dT,nv:nv};
+  }).filter(function(d){return d.sub>0||d.nv>0;});
+  var total=datos.reduce(function(s,d){return s+d.pago;},0);
+  var wrap=document.createElement('div');
+  wrap.style='padding:14px 14px 0;';
+  var topRow=document.createElement('div');
+  topRow.style='display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;';
+  topRow.innerHTML='<div><div style="font-weight:800;font-size:16px;">Pago del jueves</div><div style="font-size:11px;color:#666;">Corte: '+corte.slice(0,10)+'</div></div>';
+  var der=document.createElement('div');
+  der.style='display:flex;flex-direction:column;align-items:flex-end;gap:6px;';
+  der.innerHTML='<span style="background:#f5c51822;color:#f5c518;border:1px solid #f5c51844;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:700;">'+dinero(total)+'</span>';
+  var btnExp=document.createElement('button');
+  btnExp.textContent='⬇️ Exportar';
+  btnExp.style='background:transparent;color:#f5c518;border:1px solid #f5c518;border-radius:8px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;';
+  btnExp.onclick=function(){
+    var txt='PAGO JUEVES\nCorte: '+corte.slice(0,10)+'\n'+Array(41).join('─')+'\n';
+    datos.forEach(function(d){if(!d.sub)return;txt+='\n'+d.nombre.toUpperCase()+'\n  Sub: '+dinero(d.sub)+'\n';if(d.dT)txt+='  Deds: -'+dinero(d.dT)+'\n';txt+='  PAGO: '+dinero(d.pago)+'\n';if(d.nv)txt+='  (Próximo: '+dinero(d.nv)+')\n';});
+    txt+='\n'+Array(41).join('─')+'\nTOTAL: '+dinero(total)+'\n';
+    var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([txt],{type:'text/plain'}));a.download='pago_'+corte.slice(0,10)+'.txt';a.click();
+  };
+  der.appendChild(btnExp);
+  topRow.appendChild(der);
+  wrap.appendChild(topRow);
+  var aviso=document.createElement('div');
+  aviso.style='background:#4a9eff18;border:1px solid #4a9eff44;border-radius:10px;padding:8px 12px;margin-bottom:14px;font-size:12px;color:#4a9eff;';
+  aviso.innerHTML='⏰ Solo se paga hasta el <b>jueves a medianoche</b>. Lo nuevo acumula para el próximo.';
+  wrap.appendChild(aviso);
+  if(!datos.length){var v=document.createElement('div');v.style='text-align:center;color:#666;padding:50px;';v.textContent='Sin registros en este período.';wrap.appendChild(v);}
+  datos.forEach(function(d){
+    var card=document.createElement('div');
+    card.style='background:#16161e;border:1px solid #252535;border-radius:12px;padding:14px;margin-bottom:12px;';
+    card.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'+
+      '<div style="font-weight:700;font-size:15px;">'+d.nombre+'</div>'+
+      '<span style="background:'+(d.pago>0?'#4caf7d':'#666')+'22;color:'+(d.pago>0?'#4caf7d':'#666')+';border:1px solid '+(d.pago>0?'#4caf7d':'#666')+'44;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:700;">'+dinero(d.pago)+'</span></div>'+
+      '<div style="display:flex;flex-wrap:wrap;gap:6px;font-size:12px;color:#666;">'+
+      (d.sub>0?'<span>Sub: '+dinero(d.sub)+'</span>':'')+
+      (d.dT>0?'<span style="color:#e05555;">Deds: -'+dinero(d.dT)+'</span>':'')+
+      (d.nv>0?'<span style="color:#f5c518;">▶ Próx: '+dinero(d.nv)+'</span>':'')+
+      '</div>';
+    wrap.appendChild(card);
+  });
+  wrap.appendChild(document.createElement('div')).style='height:20px;';
+  return wrap;
+}
+
+// TAB CONFIG
+function dibujarTabCfg(){
+  var wrap=document.createElement('div');
+  wrap.style='padding:14px 14px 0;';
+  
+  // PIN Admin
+  var pinCard=document.createElement('div');
+  pinCard.style='background:#16161e;border:1px solid #f5c51844;border-radius:12px;padding:14px;margin-bottom:16px;';
+  pinCard.innerHTML='<div style="font-weight:700;font-size:14px;color:#f5c518;margin-bottom:10px;">🔐 PIN Administrador</div>'+
+    '<div style="letter-spacing:6px;font-size:20px;font-weight:700;margin-bottom:8px;">'+ESTADO.pinAdmin+'</div>';
+  var inpAP=document.createElement('input');
+  inpAP.type='number';inpAP.placeholder='Nuevo PIN 4 dígitos';
+  inpAP.style='background:#0d0d10;border:1px solid #252535;border-radius:6px;color:#f0ede8;outline:none;padding:9px 11px;font-size:14px;width:100%;margin-bottom:8px;font-family:inherit;';
+  inpAP.oninput=function(){if(inpAP.value.length>4)inpAP.value=inpAP.value.slice(0,4);};
+  var btnAP=document.createElement('button');
+  btnAP.textContent='Cambiar PIN';
+  btnAP.style='background:#f5c518;color:#0d0d10;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;width:100%;font-family:inherit;';
+  btnAP.onclick=function(){if(inpAP.value.length===4){actualizar({pinAdmin:inpAP.value});inpAP.value='';alert('PIN cambiado ✅');}else alert('PIN debe tener 4 dígitos');};
+  pinCard.appendChild(inpAP);pinCard.appendChild(btnAP);
+  wrap.appendChild(pinCard);
+
+  // PINs operarias
+  var titOp=document.createElement('div');
+  titOp.style='font-weight:700;font-size:14px;color:#f5c518;margin-bottom:10px;';
+  titOp.textContent='👷 PINs confeccionistas';
+  wrap.appendChild(titOp);
+  ESTADO.operarias.forEach(function(or){
+    var card=document.createElement('div');
+    card.style='background:#16161e;border:1px solid #252535;border-radius:12px;padding:10px 14px;margin-bottom:10px;';
+    card.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'+
+      '<div><div style="font-weight:700;font-size:14px;">'+or+'</div>'+
+      '<div style="font-size:11px;color:#666;">PIN: <b style="color:'+(ESTADO.pines[or]?'#4caf7d':'#e05555')+';letter-spacing:3px;">'+(ESTADO.pines[or]||'Sin PIN')+'</b></div></div>';
+    var btnQ=document.createElement('button');
+    btnQ.textContent='Quitar';
+    btnQ.style='background:none;border:1px solid #e0555544;color:#e05555;border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;font-family:inherit;';
+    (function(nombre){btnQ.onclick=function(){if(confirm('¿Quitar a '+nombre+'?'))actualizar({operarias:ESTADO.operarias.filter(function(o){return o!==nombre;})});};})(or);
+    card.appendChild(btnQ);
+    card.innerHTML+='</div>';
+    var inpP=document.createElement('input');
+    inpP.type='number';inpP.placeholder='Nuevo PIN 4 dígitos';
+    inpP.style='background:#0d0d10;border:1px solid #252535;border-radius:6px;color:#f0ede8;outline:none;padding:6px 8px;font-size:12px;flex:1;font-family:inherit;';
+    inpP.oninput=function(){if(inpP.value.length>4)inpP.value=inpP.value.slice(0,4);};
+    var btnP=document.createElement('button');
+    btnP.textContent='Asignar';
+    btnP.style='background:#1c1c26;color:#f5c518;border:1px solid #f5c51844;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;';
+    (function(nombre,inp){btnP.onclick=function(){if(inp.value.length===4){var np=Object.assign({},ESTADO.pines);np[nombre]=inp.value;actualizar({pines:np});inp.value='';alert('PIN asignado a '+nombre+' ✅');}else alert('PIN debe tener 4 dígitos');};})(or,inpP);
+    var rowP=document.createElement('div');
+    rowP.style='display:flex;gap:8px;';
+    rowP.appendChild(inpP);rowP.appendChild(btnP);
+    card.appendChild(rowP);
+    wrap.appendChild(card);
+  });
+
+  // Nueva operaria
+  var titN=document.createElement('div');
+  titN.style='font-weight:700;font-size:13px;color:#666;margin-bottom:8px;margin-top:4px;';
+  titN.textContent='+ Nueva confeccionista';
+  wrap.appendChild(titN);
+  var inpN=document.createElement('input');
+  inpN.type='text';inpN.placeholder='Nombre completo';
+  inpN.style='background:#0d0d10;border:1px solid #252535;border-radius:6px;color:#f0ede8;outline:none;padding:9px 11px;font-size:14px;width:100%;margin-bottom:8px;font-family:inherit;';
+  wrap.appendChild(inpN);
+  var btnN=document.createElement('button');
+  btnN.textContent='+ Agregar';
+  btnN.style='background:transparent;color:#f5c518;border:1px solid #f5c518;border-radius:8px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;width:100%;margin-bottom:20px;font-family:inherit;';
+  btnN.onclick=function(){if(inpN.value.trim()&&ESTADO.operarias.indexOf(inpN.value.trim())<0){actualizar({operarias:ESTADO.operarias.concat([inpN.value.trim()])});inpN.value='';}};
+  wrap.appendChild(btnN);
+
+  // Limpiar
+  var limpCard=document.createElement('div');
+  limpCard.style='background:#16161e;border:1px solid #252535;border-radius:12px;padding:14px;';
+  limpCard.innerHTML='<div style="font-weight:700;font-size:14px;color:#f5c518;margin-bottom:6px;">🗑 Nueva semana</div>'+
+    '<div style="font-size:12px;color:#666;margin-bottom:10px;">Limpia registros y lotes para empezar de nuevo.</div>';
+  var btnL=document.createElement('button');
+  btnL.textContent='Limpiar para nueva semana';
+  btnL.style='width:100%;background:transparent;border:1px solid #e05555;color:#e05555;border-radius:8px;padding:10px;font-size:13px;cursor:pointer;font-family:inherit;';
+  btnL.onclick=function(){if(confirm('¿Limpiar TODO? No se puede deshacer.')){actualizar({registros:[],lotes:[],deds:{}});alert('Limpiado ✅');}};
+  limpCard.appendChild(btnL);
+  wrap.appendChild(limpCard);
+  wrap.appendChild(document.createElement('div')).style='height:20px;';
+  return wrap;
+}
+
+// INICIAR
+dibujar();
+</script>
+</body>
+</html>
