@@ -5,659 +5,485 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
 <meta name="theme-color" content="#0d0d10"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
-<title>TallerCtrl</title>
+<title>TallerCtrl · LEXBAN</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 body{background:#0d0d10;color:#f0ede8;font-family:sans-serif;min-height:100vh;}
 #app{max-width:500px;margin:0 auto;}
 button,input,select{font-family:inherit;}
 input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;}
+select option{background:#16161e;color:#f0ede8;}
 </style>
 </head>
 <body>
-<div id="app"></div>
+<div id="app"><div style="display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:12px;"><div style="font-size:32px;">🧵</div><div style="color:#555;font-size:14px;">Conectando...</div></div></div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <script>
-// VERSION 10 - VANILLA JS PURO
+firebase.initializeApp({
+  apiKey: "AIzaSyBz9MlegDfyfRFxN7XYwnI-OqkBhjRnCys",
+  authDomain: "tallerctrl-7531a.firebaseapp.com",
+  projectId: "tallerctrl-7531a",
+  storageBucket: "tallerctrl-7531a.firebasestorage.app",
+  messagingSenderId: "229913360338",
+  appId: "1:229913360338:web:706a0b0ba4a8a42c2efa0b",
+  databaseURL: "https://tallerctrl-7531a-default-rtdb.firebaseio.com"
+});
+const db = firebase.database();
 
-// STORAGE
-function cargar(k,d){try{var v=localStorage.getItem(k);return v?JSON.parse(v):d;}catch(e){return d;}}
-function guardar(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
+// HELPERS
+const fmt=n=>'$'+Number(n||0).toLocaleString('es-CO');
+const num=n=>Number(n||0).toLocaleString('es-CO');
+const hoy=()=>new Date().toLocaleDateString('es-CO');
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2);
 
-// DATOS
-var ESTADO = {
+// LOCAL CACHE
+const lc=(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d;}catch{return d;}};
+const ls=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch{}};
+
+// FIREBASE HELPERS
+async function fbSet(path, data){
+  try{ await db.ref(path).set(data); ls('fb_'+path, data); }
+  catch(e){ ls('fb_'+path, data); }
+}
+async function fbGet(path, fallback){
+  try{
+    const snap = await db.ref(path).get();
+    if(snap.exists()){ ls('fb_'+path, snap.val()); return snap.val(); }
+    return lc('fb_'+path, fallback);
+  }catch(e){ return lc('fb_'+path, fallback); }
+}
+function fbListen(path, cb){
+  try{ return db.ref(path).on('value', snap=>{ if(snap.exists()) cb(snap.val()); }); }
+  catch(e){ return ()=>{}; }
+}
+
+// ESTADO
+const OPRS = ['Leidy Aeronave','Yenny Castrillon','Jurany Castrillon','Lina Pino','Helena Jaramillo','Anahis Merlo','Yuliana Gallego','Maryi Luney','Yesica Perez','Jessica Montes'];
+let S = {
   sesion: null,
-  pinAdmin: cargar('pinAdmin','1234'),
-  pines: cargar('pines',{}),
-  operarias: cargar('operarias',['Leidy Aeronave','Yenny Castrillon','Jurany Castrillon','Lina Pino','Helena Jaramillo','Anahis Merlo','Yuliana Gallego','Maryi Luney','Yesica Perez','Jessica Montes']),
-  lotes: cargar('lotes',[]),
-  registros: cargar('registros',[]),
-  deds: cargar('deds',{}),
+  cfg: { pinAdmin:'1234', pines:{}, empresa:'LEXBAN' },
+  operarias: OPRS,
+  lotes: [],
+  registros: [],
+  deds: {},
   tab: 'ops',
   verOp: null,
-  verLote: null
+  verLote: null,
+  listo: false
 };
 
-function dinero(n){return '$'+Number(n||0).toLocaleString('es-CO');}
-function nros(n){return Number(n||0).toLocaleString('es-CO');}
-function hoy(){return new Date().toLocaleDateString('es-CO');}
-function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2);}
+async function cargarDatos(){
+  S.cfg       = await fbGet('config', { pinAdmin:'1234', pines:{}, empresa:'LEXBAN' });
+  S.operarias = await fbGet('operarias', OPRS);
+  S.lotes     = await fbGet('lotes', []);
+  S.registros = await fbGet('registros', []);
+  S.deds      = await fbGet('deds', {});
+  S.listo     = true;
+  dibujar();
+  // Escuchar cambios en tiempo real
+  fbListen('config', v=>{ S.cfg=v; dibujar(); });
+  fbListen('registros', v=>{ S.registros=v||[]; dibujar(); });
+  fbListen('lotes', v=>{ S.lotes=v||[]; dibujar(); });
+}
 
-function actualizar(cambios){
-  for(var k in cambios){
-    ESTADO[k]=cambios[k];
-    if(['pinAdmin','pines','operarias','lotes','registros','deds'].indexOf(k)>=0){
-      guardar(k,cambios[k]);
-    }
-  }
+async function guardar(key, val){
+  S[key]=val;
+  await fbSet(key==='cfg'?'config':key, val);
   dibujar();
 }
 
-// DIBUJAR
+cargarDatos();
+
+// RENDER
 function dibujar(){
-  var app=document.getElementById('app');
+  const app=document.getElementById('app');
   if(!app) return;
   app.innerHTML='';
-  if(!ESTADO.sesion){ app.appendChild(dibujarLogin()); return; }
-  if(ESTADO.sesion.rol==='op'){ app.appendChild(dibujarVistaOp()); return; }
-  app.appendChild(dibujarAdmin());
+  if(!S.listo){ app.appendChild(cargando()); return; }
+  if(!S.sesion){ app.appendChild(renderLogin()); return; }
+  if(S.sesion.rol==='op'){ app.appendChild(renderVistaOp()); return; }
+  app.appendChild(renderAdmin());
+}
+
+function cargando(){
+  const d=document.createElement('div');
+  d.style='display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:12px;';
+  d.innerHTML='<div style="font-size:32px;">🧵</div><div style="color:#555;font-size:14px;">Cargando TallerCtrl...</div>';
+  return d;
 }
 
 // LOGIN
-function dibujarLogin(){
-  var pin='';
-  var div=document.createElement('div');
-  div.style='min-height:100vh;background:#0d0d10;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;';
-  
-  div.innerHTML='<div style="font-size:26px;font-weight:800;color:#f5c518;margin-bottom:4px;">🧵 TallerCtrl</div>'+
-    '<div style="font-size:13px;color:#e07b30;font-weight:700;margin-bottom:40px;">LEXBAN</div>';
-
-  var caja=document.createElement('div');
+function renderLogin(){
+  let pin='';
+  const wrap=document.createElement('div');
+  wrap.style='min-height:100vh;background:#0d0d10;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;';
+  wrap.innerHTML=`<div style="font-size:26px;font-weight:800;color:#f5c518;margin-bottom:4px;">🧵 TallerCtrl</div>
+    <div style="font-size:13px;color:#e07b30;font-weight:700;margin-bottom:40px;">${S.cfg.empresa||'LEXBAN'}</div>`;
+  const caja=document.createElement('div');
   caja.style='background:#16161e;border:1px solid #252535;border-radius:20px;padding:28px;width:100%;max-width:300px;';
-  
   caja.innerHTML='<div style="font-size:13px;color:#666;text-align:center;margin-bottom:20px;">Ingresa tu PIN de 4 dígitos</div>';
-  
-  // Puntos
-  var puntos=document.createElement('div');
+  const puntos=document.createElement('div');
   puntos.style='display:flex;justify-content:center;gap:16px;margin-bottom:28px;';
-  for(var i=0;i<4;i++){
-    var p=document.createElement('div');
-    p.id='punto'+i;
-    p.style='width:18px;height:18px;border-radius:50%;background:#252535;transition:background 0.15s;';
-    puntos.appendChild(p);
-  }
+  for(let i=0;i<4;i++){const p=document.createElement('div');p.id='pt'+i;p.style='width:18px;height:18px;border-radius:50%;background:#252535;transition:background 0.15s;';puntos.appendChild(p);}
   caja.appendChild(puntos);
-
-  // Error
-  var errDiv=document.createElement('div');
-  errDiv.style='color:#e05555;font-size:12px;text-align:center;min-height:18px;margin-bottom:8px;';
-  
-  function actualizarPuntos(){
-    for(var i=0;i<4;i++){
-      document.getElementById('punto'+i).style.background=i<pin.length?'#f5c518':'#252535';
-    }
+  const err=document.createElement('div');
+  err.style='color:#e05555;font-size:12px;text-align:center;min-height:18px;margin-bottom:8px;';
+  function upd(){for(let i=0;i<4;i++){const el=document.getElementById('pt'+i);if(el)el.style.background=i<pin.length?'#f5c518':'#252535';}}
+  function tryPin(){
+    const pines=S.cfg.pines||{};
+    if(pin===S.cfg.pinAdmin){S.sesion={rol:'admin'};dibujar();return;}
+    for(const n in pines){if(pines[n]===pin){S.sesion={rol:'op',nombre:n};dibujar();return;}}
+    err.textContent='⚠️ PIN incorrecto';pin='';upd();
   }
-
-  function intentar(){
-    if(pin===ESTADO.pinAdmin){actualizar({sesion:{rol:'admin'}});return;}
-    var encontrada=null;
-    var ps=ESTADO.pines;
-    for(var nombre in ps){ if(ps[nombre]===pin){ encontrada=nombre; break; } }
-    if(encontrada){actualizar({sesion:{rol:'op',nombre:encontrada}});return;}
-    errDiv.textContent='⚠️ PIN incorrecto';
-    pin='';actualizarPuntos();
-  }
-
-  // Teclado
-  var teclado=document.createElement('div');
-  teclado.style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;';
-  
-  function crearBtn(txt, accion){
-    var b=document.createElement('button');
-    b.textContent=txt;
-    b.style='background:#1c1c26;border:1px solid #252535;border-radius:12px;color:#f0ede8;font-size:22px;font-weight:700;padding:14px 0;cursor:pointer;font-family:inherit;';
-    b.onclick=accion;
-    return b;
-  }
-
-  [1,2,3,4,5,6,7,8,9].forEach(function(d){
-    teclado.appendChild(crearBtn(String(d),function(){
-      if(pin.length>=4) return;
-      pin+=String(d); actualizarPuntos();
-      if(pin.length===4) setTimeout(intentar,150);
-    }));
+  const tec=document.createElement('div');
+  tec.style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;';
+  const btnStyle='background:#1c1c26;border:1px solid #252535;border-radius:12px;color:#f0ede8;font-size:22px;font-weight:700;padding:14px 0;cursor:pointer;font-family:inherit;';
+  [1,2,3,4,5,6,7,8,9].forEach(d=>{
+    const b=document.createElement('button');b.textContent=d;b.style=btnStyle;
+    b.onclick=()=>{if(pin.length>=4)return;pin+=d;upd();if(pin.length===4)setTimeout(tryPin,150);};
+    tec.appendChild(b);
   });
-  
-  teclado.appendChild(document.createElement('div'));
-  teclado.appendChild(crearBtn('0',function(){
-    if(pin.length>=4) return;
-    pin+='0'; actualizarPuntos();
-    if(pin.length===4) setTimeout(intentar,150);
-  }));
-  teclado.appendChild(crearBtn('⌫',function(){
-    pin=pin.slice(0,-1); actualizarPuntos(); errDiv.textContent='';
-  }));
-  
-  caja.appendChild(teclado);
-  caja.appendChild(errDiv);
-  div.appendChild(caja);
-  return div;
+  tec.appendChild(document.createElement('div'));
+  const b0=document.createElement('button');b0.textContent='0';b0.style=btnStyle;
+  b0.onclick=()=>{if(pin.length>=4)return;pin+='0';upd();if(pin.length===4)setTimeout(tryPin,150);};
+  tec.appendChild(b0);
+  const bd=document.createElement('button');bd.textContent='⌫';bd.style=btnStyle.replace('22px','18px');
+  bd.onclick=()=>{pin=pin.slice(0,-1);upd();err.textContent='';};
+  tec.appendChild(bd);
+  caja.appendChild(tec);caja.appendChild(err);wrap.appendChild(caja);
+  return wrap;
 }
 
 // VISTA OPERARIA
-function dibujarVistaOp(){
-  var nombre=ESTADO.sesion.nombre;
-  var wrap=document.createElement('div');
+function renderVistaOp(){
+  const nombre=S.sesion.nombre;
+  const regs=(S.registros||[]).filter(r=>r.operaria===nombre);
+  const wrap=document.createElement('div');
   wrap.style='min-height:100vh;background:#0d0d10;max-width:500px;margin:0 auto;padding-bottom:40px;';
-  
-  // Header
-  var hdr=document.createElement('div');
+  const hdr=document.createElement('div');
   hdr.style='background:#16161e;border-bottom:2px solid #f5c518;padding:14px 16px 10px;display:flex;justify-content:space-between;align-items:center;';
-  hdr.innerHTML='<div><div style="font-size:18px;font-weight:800;color:#f5c518;">🧵 TallerCtrl</div><div style="font-size:12px;color:#e07b30;font-weight:700;">'+nombre+'</div></div>';
-  var btnSalir=document.createElement('button');
-  btnSalir.textContent='Salir';
-  btnSalir.style='background:none;border:1px solid #252535;color:#666;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;';
-  btnSalir.onclick=function(){actualizar({sesion:null});};
-  hdr.appendChild(btnSalir);
-  wrap.appendChild(hdr);
-  
-  var regs=ESTADO.registros.filter(function(r){return r.operaria===nombre;});
-  wrap.appendChild(dibujarHojaOp(nombre,regs,false));
+  hdr.innerHTML=`<div><div style="font-size:18px;font-weight:800;color:#f5c518;">🧵 TallerCtrl</div><div style="font-size:12px;color:#e07b30;font-weight:700;">${nombre}</div></div>`;
+  const bs=document.createElement('button');bs.textContent='Salir';bs.style='background:none;border:1px solid #252535;color:#666;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;';
+  bs.onclick=()=>{S.sesion=null;dibujar();};hdr.appendChild(bs);wrap.appendChild(hdr);
+  wrap.appendChild(renderHojaOp(nombre,regs,false));
   return wrap;
 }
 
 // HOJA OPERARIA
-function dibujarHojaOp(nombre,regs,esAdmin,alVolver){
-  var wrap=document.createElement('div');
+function renderHojaOp(nombre,regs,esAdmin,alVolver){
+  const wrap=document.createElement('div');
   wrap.style='padding:14px 12px 0;';
-  
-  // Header
-  var hRow=document.createElement('div');
+  const hRow=document.createElement('div');
   hRow.style='display:flex;align-items:center;gap:10px;margin-bottom:14px;';
-  if(alVolver){
-    var btnV=document.createElement('button');
-    btnV.textContent='←';
-    btnV.style='background:none;border:none;color:#f5c518;font-size:20px;cursor:pointer;padding:0;';
-    btnV.onclick=alVolver;
-    hRow.appendChild(btnV);
-  }
-  var inf=document.createElement('div');
-  inf.innerHTML='<div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:1px;">Planilla</div><div style="font-weight:800;font-size:17px;color:#e07b30;">'+nombre+'</div>';
-  hRow.appendChild(inf);
-  var fecha=document.createElement('div');
-  fecha.style='margin-left:auto;font-size:11px;color:#666;';
-  fecha.textContent=hoy();
-  hRow.appendChild(fecha);
+  if(alVolver){const b=document.createElement('button');b.textContent='←';b.style='background:none;border:none;color:#f5c518;font-size:20px;cursor:pointer;padding:0;';b.onclick=alVolver;hRow.appendChild(b);}
+  hRow.innerHTML+=`<div><div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:1px;">Planilla</div><div style="font-weight:800;font-size:17px;color:#e07b30;">${nombre}</div></div><div style="margin-left:auto;font-size:11px;color:#666;">${hoy()}</div>`;
   wrap.appendChild(hRow);
-
-  // Formulario nueva fila
-  wrap.appendChild(dibujarFormFila(nombre));
-
-  // Filas registradas
-  var porLote={};
-  regs.forEach(function(r){ if(!porLote[r.lote])porLote[r.lote]=[]; porLote[r.lote].push(r); });
-  
-  if(Object.keys(porLote).length===0){
-    var vacio=document.createElement('div');
-    vacio.style='text-align:center;color:#666;padding:30px;font-size:13px;';
-    vacio.textContent='Sin filas. Agrega la primera arriba.';
-    wrap.appendChild(vacio);
+  wrap.appendChild(renderFormFila(nombre));
+  const porLote={};
+  (regs||[]).forEach(r=>{if(!porLote[r.lote])porLote[r.lote]=[];porLote[r.lote].push(r);});
+  if(!Object.keys(porLote).length){
+    const v=document.createElement('div');v.style='text-align:center;color:#666;padding:30px;font-size:13px;';v.textContent='Sin filas. Agrega la primera arriba.';wrap.appendChild(v);
   }
-
-  Object.keys(porLote).forEach(function(lN){
-    var filas=porLote[lN];
-    var total=filas.reduce(function(s,r){return s+Number(r.cant)*Number(r.precio);},0);
-    var card=document.createElement('div');
+  Object.keys(porLote).forEach(lN=>{
+    const filas=porLote[lN];
+    const tot=filas.reduce((s,r)=>s+Number(r.cant)*Number(r.precio),0);
+    const card=document.createElement('div');
     card.style='background:#16161e;border:1px solid #252535;border-radius:12px;padding:14px;margin-bottom:12px;';
-    
-    var loteHdr=document.createElement('div');
-    loteHdr.style='display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;';
-    loteHdr.innerHTML='<div style="font-weight:700;font-size:14px;color:#e07b30;">Lote '+lN+'</div><span style="background:#e07b3022;color:#e07b30;border:1px solid #e07b3044;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:700;">'+dinero(total)+'</span>';
-    card.appendChild(loteHdr);
-
-    filas.forEach(function(r){
-      var fila=document.createElement('div');
-      fila.style='display:grid;grid-template-columns:1fr 55px 45px 55px 65px 30px;gap:4px;align-items:center;padding:5px 0;border-bottom:1px solid #25253522;';
-      fila.innerHTML='<div style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+r.op+'</div>'+
-        '<div style="font-size:11px;color:#666;">'+(r.color||'—')+'</div>'+
-        '<div style="font-size:11px;color:#666;">'+(r.talla||'—')+'</div>'+
-        '<div style="font-size:12px;text-align:right;font-weight:700;">'+nros(r.cant)+'</div>'+
-        '<div style="font-size:12px;text-align:right;color:#4caf7d;font-weight:700;">'+dinero(Number(r.cant)*Number(r.precio))+'</div>';
-      var btnEl=document.createElement('button');
-      btnEl.textContent='✕';
-      btnEl.style='background:none;border:none;color:#e0555588;font-size:13px;cursor:pointer;';
-      (function(id){btnEl.onclick=function(){if(confirm('¿Eliminar?'))actualizar({registros:ESTADO.registros.filter(function(x){return x.id!==id;})});};})(r.id);
-      fila.appendChild(btnEl);
-      card.appendChild(fila);
+    card.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;"><div style="font-weight:700;font-size:14px;color:#e07b30;">Lote ${lN}</div><span style="background:#e07b3022;color:#e07b30;border:1px solid #e07b3044;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:700;">${fmt(tot)}</span></div>`;
+    filas.forEach(r=>{
+      const row=document.createElement('div');
+      row.style='display:grid;grid-template-columns:1fr 55px 45px 55px 65px 30px;gap:4px;align-items:center;padding:5px 0;border-bottom:1px solid #25253522;';
+      row.innerHTML=`<div style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.op}</div><div style="font-size:11px;color:#666;">${r.color||'—'}</div><div style="font-size:11px;color:#666;">${r.talla||'—'}</div><div style="font-size:12px;text-align:right;font-weight:700;">${num(r.cant)}</div><div style="font-size:12px;text-align:right;color:#4caf7d;font-weight:700;">${fmt(Number(r.cant)*Number(r.precio))}</div>`;
+      const bd=document.createElement('button');bd.textContent='✕';bd.style='background:none;border:none;color:#e0555588;font-size:13px;cursor:pointer;';
+      bd.onclick=()=>{if(confirm('¿Eliminar?')){const nr=(S.registros||[]).filter(x=>x.id!==r.id);guardar('registros',nr);}};
+      row.appendChild(bd);card.appendChild(row);
     });
     wrap.appendChild(card);
   });
-
-  // Pago (solo admin)
-  if(esAdmin && regs.length>0){
-    var sub=regs.reduce(function(s,r){return s+Number(r.cant)*Number(r.precio);},0);
-    var ded=ESTADO.deds[nombre]||{cot:0,dan:0,des:0};
-    var dT=Number(ded.cot||0)+Number(ded.dan||0)+Number(ded.des||0);
-    var pago=sub-dT;
-    var pagoCard=document.createElement('div');
-    pagoCard.style='background:#16161e;border:1px solid #f5c51833;border-radius:12px;padding:14px;margin-bottom:12px;';
-    pagoCard.innerHTML='<div style="display:flex;justify-content:space-between;font-size:14px;padding-bottom:10px;border-bottom:1px solid #252535;"><span style="color:#666;font-weight:600;">SUBTOTAL</span><span style="font-weight:800;">'+dinero(sub)+'</span></div>'+
-      '<div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:1px;margin:10px 0 8px;">Deducciones</div>';
-    [['cot','Cotizaciones'],['dan','Daños'],['des','Descuento']].forEach(function(par){
-      var k=par[0],lb=par[1];
-      var row=document.createElement('div');
-      row.style='display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;';
-      row.innerHTML='<span style="font-size:13px;color:#666;">'+lb+'</span>';
-      var inp=document.createElement('input');
-      inp.type='number';inp.min='0';inp.placeholder='0';
+  if(esAdmin&&regs.length>0){
+    const sub=regs.reduce((s,r)=>s+Number(r.cant)*Number(r.precio),0);
+    const ded=(S.deds||{})[nombre]||{cot:0,dan:0,des:0};
+    const dT=Number(ded.cot||0)+Number(ded.dan||0)+Number(ded.des||0);
+    const pago=sub-dT;
+    const pc=document.createElement('div');
+    pc.style='background:#16161e;border:1px solid #f5c51833;border-radius:12px;padding:14px;margin-bottom:12px;';
+    pc.innerHTML=`<div style="display:flex;justify-content:space-between;font-size:14px;padding-bottom:10px;border-bottom:1px solid #252535;"><span style="color:#666;font-weight:600;">SUBTOTAL</span><span style="font-weight:800;">${fmt(sub)}</span></div><div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:1px;margin:10px 0 8px;">Deducciones</div>`;
+    [['cot','Cotizaciones'],['dan','Daños'],['des','Descuento']].forEach(([k,lb])=>{
+      const row=document.createElement('div');row.style='display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;';
+      row.innerHTML=`<span style="font-size:13px;color:#666;">${lb}</span>`;
+      const inp=document.createElement('input');inp.type='number';inp.min='0';inp.placeholder='0';
       inp.style='width:110px;background:#0d0d10;border:1px solid #252535;border-radius:6px;color:#f0ede8;padding:5px 9px;font-size:13px;outline:none;text-align:right;font-family:inherit;';
       inp.value=ded[k]||'';
-      (function(campo){inp.oninput=function(){var nd=Object.assign({},ESTADO.deds[nombre]||{cot:0,dan:0,des:0});nd[campo]=Number(inp.value||0);var nd2=Object.assign({},ESTADO.deds);nd2[nombre]=nd;guardar('deds',nd2);ESTADO.deds=nd2;};})(k);
-      row.appendChild(inp);
-      pagoCard.appendChild(row);
+      inp.oninput=()=>{const nd=Object.assign({},(S.deds||{})[nombre]||{cot:0,dan:0,des:0});nd[k]=Number(inp.value||0);const nd2=Object.assign({},S.deds||{});nd2[nombre]=nd;guardar('deds',nd2);};
+      row.appendChild(inp);pc.appendChild(row);
     });
-    pagoCard.innerHTML+='<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding:12px 14px;background:#4caf7d18;border:1px solid #4caf7d44;border-radius:10px;"><span style="font-weight:800;font-size:16px;color:#4caf7d;">PAGO</span><span style="font-weight:800;font-size:22px;color:#4caf7d;">'+dinero(pago)+'</span></div>';
-    wrap.appendChild(pagoCard);
+    pc.innerHTML+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding:12px 14px;background:#4caf7d18;border:1px solid #4caf7d44;border-radius:10px;"><span style="font-weight:800;font-size:16px;color:#4caf7d;">PAGO</span><span style="font-weight:800;font-size:22px;color:#4caf7d;">${fmt(pago)}</span></div>`;
+    wrap.appendChild(pc);
   }
-
-  if(!esAdmin && regs.length>0){
-    var msg=document.createElement('div');
-    msg.style='background:#4caf7d18;border:1px solid #4caf7d44;border-radius:10px;padding:10px 14px;margin-bottom:12px;text-align:center;';
-    msg.innerHTML='<div style="font-size:12px;color:#4caf7d;font-weight:700;">✅ '+regs.length+' filas registradas</div><div style="font-size:11px;color:#666;margin-top:2px;">Tu pago lo verás el jueves en la noche</div>';
-    wrap.appendChild(msg);
+  if(!esAdmin&&regs.length>0){
+    const m=document.createElement('div');m.style='background:#4caf7d18;border:1px solid #4caf7d44;border-radius:10px;padding:10px 14px;margin-bottom:12px;text-align:center;';
+    m.innerHTML=`<div style="font-size:12px;color:#4caf7d;font-weight:700;">✅ ${regs.length} filas registradas</div><div style="font-size:11px;color:#666;margin-top:2px;">Tu pago lo verás el jueves en la noche</div>`;
+    wrap.appendChild(m);
   }
-
-  wrap.appendChild(document.createElement('div')).style='height:20px;';
+  const sp=document.createElement('div');sp.style='height:20px;';wrap.appendChild(sp);
   return wrap;
 }
 
-// FORMULARIO NUEVA FILA
-function dibujarFormFila(nombre){
-  var card=document.createElement('div');
+// FORM NUEVA FILA
+function renderFormFila(nombre){
+  const card=document.createElement('div');
   card.style='background:#16161e;border:1px solid #252535;border-radius:12px;padding:14px;margin-bottom:12px;';
-  
-  var titulo=document.createElement('div');
-  titulo.style='font-size:12px;color:#f5c518;font-weight:700;margin-bottom:10px;';
-  titulo.textContent='➕ Nueva fila';
-  card.appendChild(titulo);
-
+  card.innerHTML='<div style="font-size:12px;color:#f5c518;font-weight:700;margin-bottom:10px;">➕ Nueva fila</div>';
+  const IS='background:#0d0d10;border:1px solid #252535;border-radius:6px;color:#f0ede8;outline:none;padding:6px 8px;font-size:12px;width:100%;font-family:inherit;';
+  const IN='background:#0d0d10;border:1px solid #252535;border-radius:6px;color:#f0ede8;outline:none;padding:9px 11px;font-size:13px;width:100%;font-family:inherit;';
   // Lote
-  var lblLote=document.createElement('div');
-  lblLote.style='font-size:10px;color:#666;margin-bottom:3px;';
-  lblLote.textContent='LOTE';
-  card.appendChild(lblLote);
-  
-  var selLote=document.createElement('select');
-  selLote.style='background:#0d0d10;border:1px solid #252535;border-radius:6px;color:#f0ede8;outline:none;padding:9px 11px;font-size:13px;width:100%;margin-bottom:8px;font-family:inherit;';
+  card.innerHTML+='<div style="font-size:10px;color:#666;margin-bottom:3px;">LOTE</div>';
+  const selLote=document.createElement('select');selLote.style=IN+'margin-bottom:8px;';
   selLote.innerHTML='<option value="">Seleccionar lote...</option>';
-  ESTADO.lotes.forEach(function(l){
-    var opt=document.createElement('option');
-    opt.value=l.nombre;opt.textContent=l.nombre;
-    selLote.appendChild(opt);
-  });
+  (S.lotes||[]).forEach(l=>{const o=document.createElement('option');o.value=l.nombre;o.textContent=l.nombre;selLote.appendChild(o);});
   card.appendChild(selLote);
-
   // Operación
-  var lblOp=document.createElement('div');
-  lblOp.style='font-size:10px;color:#666;margin-bottom:3px;';
-  lblOp.textContent='OPERACIÓN';
-  card.appendChild(lblOp);
-
-  var selOp=document.createElement('select');
-  selOp.style='background:#0d0d10;border:1px solid #252535;border-radius:6px;color:#f0ede8;outline:none;padding:9px 11px;font-size:13px;width:100%;margin-bottom:8px;font-family:inherit;';
+  card.innerHTML+='<div style="font-size:10px;color:#666;margin-bottom:3px;">OPERACIÓN</div>';
+  const selOp=document.createElement('select');selOp.style=IN+'margin-bottom:8px;';selOp.disabled=true;
   selOp.innerHTML='<option value="">Seleccionar operación...</option>';
-  selOp.disabled=true;
   card.appendChild(selOp);
-
   // Precio
-  var precioDiv=document.createElement('div');
+  const precioDiv=document.createElement('div');
   precioDiv.style='background:#1c1c26;border-radius:8px;padding:6px 10px;margin-bottom:8px;display:none;justify-content:space-between;align-items:center;';
-  precioDiv.innerHTML='<span style="font-size:12px;color:#666;">Precio fijo:</span><span id="precioFijo_'+nombre+'" style="font-size:14px;font-weight:800;color:#f5c518;"></span>';
+  precioDiv.innerHTML='<span style="font-size:12px;color:#666;">Precio fijo:</span><span id="pf_disp" style="font-size:14px;font-weight:800;color:#f5c518;"></span>';
   card.appendChild(precioDiv);
-
-  // Color y talla
-  var row2=document.createElement('div');
-  row2.style='display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;';
-  
-  var selColor=document.createElement('select');
-  selColor.style='background:#0d0d10;border:1px solid #252535;border-radius:6px;color:#f0ede8;outline:none;padding:6px 8px;font-size:12px;width:100%;font-family:inherit;';
-  selColor.innerHTML='<option value="">Color...</option>';
-  
-  var selTalla=document.createElement('select');
-  selTalla.style='background:#0d0d10;border:1px solid #252535;border-radius:6px;color:#f0ede8;outline:none;padding:6px 8px;font-size:12px;width:100%;font-family:inherit;';
-  selTalla.innerHTML='<option value="">Talla...</option>';
-
-  var d1=document.createElement('div');d1.innerHTML='<div style="font-size:10px;color:#666;margin-bottom:3px;">COLOR</div>';d1.appendChild(selColor);
-  var d2=document.createElement('div');d2.innerHTML='<div style="font-size:10px;color:#666;margin-bottom:3px;">TALLA</div>';d2.appendChild(selTalla);
-  row2.appendChild(d1);row2.appendChild(d2);
-  card.appendChild(row2);
-
+  // Color + Talla
+  const r2=document.createElement('div');r2.style='display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;';
+  const selColor=document.createElement('select');selColor.style=IS;selColor.innerHTML='<option value="">Color...</option>';
+  const selTalla=document.createElement('select');selTalla.style=IS;selTalla.innerHTML='<option value="">Talla...</option>';
+  const d1=document.createElement('div');d1.innerHTML='<div style="font-size:10px;color:#666;margin-bottom:3px;">COLOR</div>';d1.appendChild(selColor);
+  const d2=document.createElement('div');d2.innerHTML='<div style="font-size:10px;color:#666;margin-bottom:3px;">TALLA</div>';d2.appendChild(selTalla);
+  r2.appendChild(d1);r2.appendChild(d2);card.appendChild(r2);
   // Cantidad
-  var lblCant=document.createElement('div');
-  lblCant.style='font-size:10px;color:#666;margin-bottom:3px;';
-  lblCant.textContent='CANTIDAD';
-  card.appendChild(lblCant);
-
-  var inpCant=document.createElement('input');
-  inpCant.type='number';inpCant.min='0';inpCant.placeholder='0';
-  inpCant.style='background:#0d0d10;border:1px solid #252535;border-radius:6px;color:#f0ede8;outline:none;padding:9px 11px;font-size:14px;width:100%;margin-bottom:8px;font-family:inherit;text-align:right;';
-  card.appendChild(inpCant);
-
+  card.innerHTML+='<div style="font-size:10px;color:#666;margin-bottom:3px;">CANTIDAD</div>';
+  const inpC=document.createElement('input');inpC.type='number';inpC.min='0';inpC.placeholder='0';
+  inpC.style=IN+'margin-bottom:8px;text-align:right;';card.appendChild(inpC);
   // Error
-  var errDiv=document.createElement('div');
-  errDiv.style='color:#e05555;font-size:12px;margin-bottom:8px;min-height:18px;';
-  card.appendChild(errDiv);
-
+  const err=document.createElement('div');err.style='color:#e05555;font-size:12px;margin-bottom:8px;min-height:18px;';card.appendChild(err);
   // Eventos
-  selLote.onchange=function(){
-    var lObj=ESTADO.lotes.find(function(l){return l.nombre===selLote.value;});
+  selLote.onchange=()=>{
+    const lObj=(S.lotes||[]).find(l=>l.nombre===selLote.value);
     selOp.innerHTML='<option value="">Seleccionar operación...</option>';
-    if(lObj){
-      lObj.operaciones.forEach(function(o){
-        var opt=document.createElement('option');
-        opt.value=o.nombre;opt.textContent=o.nombre+' · '+dinero(o.precioUni);
-        selOp.appendChild(opt);
-      });
-      selOp.disabled=false;
-    } else { selOp.disabled=true; }
-    selColor.innerHTML='<option value="">Color...</option>';
-    selTalla.innerHTML='<option value="">Talla...</option>';
-    precioDiv.style.display='none';
-    inpCant.value='';
+    if(lObj){lObj.operaciones.forEach(o=>{const opt=document.createElement('option');opt.value=o.nombre;opt.textContent=o.nombre+' · '+fmt(o.precioUni);selOp.appendChild(opt);});selOp.disabled=false;}
+    else selOp.disabled=true;
+    selColor.innerHTML='<option value="">Color...</option>';selTalla.innerHTML='<option value="">Talla...</option>';
+    precioDiv.style.display='none';inpC.value='';
   };
-
-  selOp.onchange=function(){
-    var lObj=ESTADO.lotes.find(function(l){return l.nombre===selLote.value;});
-    var oObj=lObj&&lObj.operaciones.find(function(o){return o.nombre===selOp.value;});
-    selColor.innerHTML='<option value="">Color...</option>';
-    selTalla.innerHTML='<option value="">Talla...</option>';
+  selOp.onchange=()=>{
+    const lObj=(S.lotes||[]).find(l=>l.nombre===selLote.value);
+    const oObj=lObj&&lObj.operaciones.find(o=>o.nombre===selOp.value);
+    selColor.innerHTML='<option value="">Color...</option>';selTalla.innerHTML='<option value="">Talla...</option>';
     if(oObj){
       precioDiv.style.display='flex';
-      var pEl=document.getElementById('precioFijo_'+nombre);
-      if(pEl) pEl.textContent=dinero(oObj.precioUni)+'/und';
-      var colores=[];
-      (oObj.items||[]).forEach(function(it){if(it.color&&colores.indexOf(it.color)<0)colores.push(it.color);});
-      colores.forEach(function(c){var opt=document.createElement('option');opt.value=c;opt.textContent=c;selColor.appendChild(opt);});
-    } else { precioDiv.style.display='none'; }
-    inpCant.value='';
+      const pf=document.getElementById('pf_disp');if(pf)pf.textContent=fmt(oObj.precioUni)+'/und';
+      const cols=[...new Set((oObj.items||[]).map(i=>i.color).filter(Boolean))];
+      cols.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;selColor.appendChild(o);});
+    } else precioDiv.style.display='none';
+    inpC.value='';
   };
-
-  selColor.onchange=function(){
-    var lObj=ESTADO.lotes.find(function(l){return l.nombre===selLote.value;});
-    var oObj=lObj&&lObj.operaciones.find(function(o){return o.nombre===selOp.value;});
+  selColor.onchange=()=>{
+    const lObj=(S.lotes||[]).find(l=>l.nombre===selLote.value);
+    const oObj=lObj&&lObj.operaciones.find(o=>o.nombre===selOp.value);
     selTalla.innerHTML='<option value="">Talla...</option>';
-    if(oObj){
-      (oObj.items||[]).filter(function(it){return !selColor.value||it.color===selColor.value;}).forEach(function(it){
-        if(it.talla){var opt=document.createElement('option');opt.value=it.talla;opt.textContent=it.talla;selTalla.appendChild(opt);}
-      });
-    }
+    if(oObj){(oObj.items||[]).filter(i=>!selColor.value||i.color===selColor.value).forEach(i=>{if(i.talla){const o=document.createElement('option');o.value=i.talla;o.textContent=i.talla;selTalla.appendChild(o);}});}
   };
-
-  // Botón guardar
-  var btnG=document.createElement('button');
-  btnG.textContent='Agregar fila';
-  btnG.style='background:#f5c518;color:#0d0d10;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:800;cursor:pointer;width:100%;font-family:inherit;';
-  btnG.onclick=function(){
-    if(!selLote.value||!selOp.value||!inpCant.value){errDiv.textContent='⚠️ Completa lote, operación y cantidad';return;}
-    var cant=Number(inpCant.value);
-    if(cant<=0){errDiv.textContent='⚠️ Cantidad debe ser mayor a 0';return;}
-    var lObj=ESTADO.lotes.find(function(l){return l.nombre===selLote.value;});
-    var oObj=lObj&&lObj.operaciones.find(function(o){return o.nombre===selOp.value;});
-    var precio=oObj?oObj.precioUni:0;
-    var nuevo={id:uid(),operaria:nombre,lote:selLote.value,op:selOp.value,color:selColor.value,talla:selTalla.value,cant:cant,precio:precio,fecha:hoy(),fechaISO:new Date().toISOString()};
-    actualizar({registros:ESTADO.registros.concat([nuevo])});
+  // Botón
+  const btn=document.createElement('button');
+  btn.textContent='Agregar fila';
+  btn.style='background:#f5c518;color:#0d0d10;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:800;cursor:pointer;width:100%;font-family:inherit;';
+  btn.onclick=()=>{
+    if(!selLote.value||!selOp.value||!inpC.value){err.textContent='⚠️ Completa lote, operación y cantidad';return;}
+    const cant=Number(inpC.value);if(cant<=0){err.textContent='⚠️ Cantidad debe ser mayor a 0';return;}
+    const lObj=(S.lotes||[]).find(l=>l.nombre===selLote.value);
+    const oObj=lObj&&lObj.operaciones.find(o=>o.nombre===selOp.value);
+    const precio=oObj?oObj.precioUni:0;
+    const nuevo={id:uid(),operaria:nombre,lote:selLote.value,op:selOp.value,color:selColor.value,talla:selTalla.value,cant,precio,fecha:hoy(),fechaISO:new Date().toISOString()};
+    guardar('registros',[...(S.registros||[]),nuevo]);
+    selOp.value='';selColor.innerHTML='<option value="">Color...</option>';selTalla.innerHTML='<option value="">Talla...</option>';
+    inpC.value='';precioDiv.style.display='none';err.textContent='';
   };
-  card.appendChild(btnG);
+  card.appendChild(btn);
   return card;
 }
 
 // ADMIN
-function dibujarAdmin(){
-  var wrap=document.createElement('div');
+function renderAdmin(){
+  const wrap=document.createElement('div');
   wrap.style='min-height:100vh;background:#0d0d10;max-width:500px;margin:0 auto;padding-bottom:90px;';
-
-  // Header
-  var hdr=document.createElement('div');
+  const hdr=document.createElement('div');
   hdr.style='background:#16161e;border-bottom:2px solid #f5c518;padding:13px 16px 10px;display:flex;justify-content:space-between;align-items:center;';
-  hdr.innerHTML='<div><div style="font-size:18px;font-weight:800;color:#f5c518;">🧵 TallerCtrl · LEXBAN</div><div style="font-size:11px;color:#666;">'+hoy()+'</div></div>';
-  var btnS=document.createElement('button');
-  btnS.textContent='Salir';
-  btnS.style='background:none;border:1px solid #252535;color:#666;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit;';
-  btnS.onclick=function(){actualizar({sesion:null,tab:'ops',verOp:null,verLote:null});};
-  hdr.appendChild(btnS);
-  wrap.appendChild(hdr);
-
-  // Nav
-  var nav=document.createElement('div');
+  hdr.innerHTML=`<div><div style="font-size:18px;font-weight:800;color:#f5c518;">🧵 TallerCtrl · LEXBAN</div><div style="font-size:11px;color:#666;">${hoy()}</div></div>`;
+  const bs=document.createElement('button');bs.textContent='Salir';bs.style='background:none;border:1px solid #252535;color:#666;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit;';
+  bs.onclick=()=>{S.sesion=null;S.tab='ops';S.verOp=null;S.verLote=null;dibujar();};hdr.appendChild(bs);wrap.appendChild(hdr);
+  const nav=document.createElement('div');
   nav.style='display:flex;background:#16161e;border-bottom:1px solid #252535;position:sticky;top:0;z-index:10;';
-  [['ops','👷 Operarias'],['refs','📦 Referencias'],['res','📊 Resumen'],['cfg','⚙️ Config']].forEach(function(item){
-    var btn=document.createElement('button');
-    var activo=ESTADO.tab===item[0];
-    btn.textContent=item[1];
-    btn.style='flex:1;padding:11px 2px;border:none;background:none;font-size:11px;cursor:pointer;font-family:inherit;'+(activo?'color:#f5c518;font-weight:700;border-bottom:2px solid #f5c518;':'color:#666;font-weight:400;border-bottom:2px solid transparent;');
-    (function(id){btn.onclick=function(){actualizar({tab:id,verOp:null,verLote:null});};})(item[0]);
-    nav.appendChild(btn);
+  [['ops','👷 Operarias'],['refs','📦 Referencias'],['res','📊 Resumen'],['cfg','⚙️ Config']].forEach(([id,lb])=>{
+    const b=document.createElement('button');
+    const act=S.tab===id;
+    b.textContent=lb;b.style=`flex:1;padding:11px 2px;border:none;background:none;font-size:11px;cursor:pointer;font-family:inherit;color:${act?'#f5c518':'#666'};font-weight:${act?700:400};border-bottom:${act?'2px solid #f5c518':'2px solid transparent'};`;
+    b.onclick=()=>{S.tab=id;S.verOp=null;S.verLote=null;dibujar();};nav.appendChild(b);
   });
   wrap.appendChild(nav);
-
-  // Contenido
-  var contenido=document.createElement('div');
+  const cont=document.createElement('div');
   try{
-    if(ESTADO.tab==='ops') contenido.appendChild(dibujarTabOps());
-    else if(ESTADO.tab==='refs') contenido.appendChild(dibujarTabRefs());
-    else if(ESTADO.tab==='res') contenido.appendChild(dibujarTabResumen());
-    else if(ESTADO.tab==='cfg') contenido.appendChild(dibujarTabCfg());
-  }catch(e){
-    contenido.innerHTML='<div style="padding:20px;color:#e05555;font-size:12px;">Error: '+e.message+'</div>';
-  }
-  wrap.appendChild(contenido);
+    if(S.tab==='ops') cont.appendChild(renderTabOps());
+    else if(S.tab==='refs') cont.appendChild(renderTabRefs());
+    else if(S.tab==='res') cont.appendChild(renderTabResumen());
+    else if(S.tab==='cfg') cont.appendChild(renderTabCfg());
+  }catch(e){cont.innerHTML=`<div style="padding:20px;color:#e05555;font-size:12px;">Error: ${e.message}</div>`;}
+  wrap.appendChild(cont);
   return wrap;
 }
 
-// TAB OPERARIAS
-function dibujarTabOps(){
-  if(ESTADO.verOp){
-    var regs=ESTADO.registros.filter(function(r){return r.operaria===ESTADO.verOp;});
-    return dibujarHojaOp(ESTADO.verOp,regs,true,function(){actualizar({verOp:null});});
+// TAB OPS
+function renderTabOps(){
+  if(S.verOp){
+    const regs=(S.registros||[]).filter(r=>r.operaria===S.verOp);
+    return renderHojaOp(S.verOp,regs,true,()=>{S.verOp=null;dibujar();});
   }
-  var wrap=document.createElement('div');
-  wrap.style='padding:14px 14px 0;';
-  var subtit=document.createElement('div');
-  subtit.style='font-size:12px;color:#666;margin-bottom:12px;';
-  subtit.textContent='Toca una operaria para ver su planilla';
-  wrap.appendChild(subtit);
-  ESTADO.operarias.forEach(function(or){
-    var regs=ESTADO.registros.filter(function(r){return r.operaria===or;});
-    var sub=regs.reduce(function(s,r){return s+Number(r.cant||0)*Number(r.precio||0);},0);
-    var ded=ESTADO.deds[or]||{cot:0,dan:0,des:0};
-    var pago=sub-Number(ded.cot||0)-Number(ded.dan||0)-Number(ded.des||0);
-    var card=document.createElement('div');
+  const wrap=document.createElement('div');wrap.style='padding:14px 14px 0;';
+  wrap.innerHTML='<div style="font-size:12px;color:#666;margin-bottom:12px;">Toca una operaria para ver su planilla</div>';
+  (S.operarias||[]).forEach(or=>{
+    const regs=(S.registros||[]).filter(r=>r.operaria===or);
+    const sub=regs.reduce((s,r)=>s+Number(r.cant||0)*Number(r.precio||0),0);
+    const d=(S.deds||{})[or]||{cot:0,dan:0,des:0};
+    const pago=sub-Number(d.cot||0)-Number(d.dan||0)-Number(d.des||0);
+    const card=document.createElement('div');
     card.style='background:#16161e;border:1px solid #252535;border-radius:12px;padding:14px;margin-bottom:12px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;';
-    card.innerHTML='<div><div style="font-weight:700;font-size:15px;">'+or+'</div><div style="font-size:11px;color:#666;">'+regs.length+' filas</div></div>';
-    var der=document.createElement('div');
-    der.style='text-align:right;';
-    if(pago>0){
-      der.innerHTML='<span style="background:#4caf7d22;color:#4caf7d;border:1px solid #4caf7d44;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:700;">'+dinero(pago)+'</span>';
-    } else {
-      der.innerHTML='<span style="color:#666;font-size:12px;">Sin datos</span>';
-    }
+    card.innerHTML=`<div><div style="font-weight:700;font-size:15px;">${or}</div><div style="font-size:11px;color:#666;">${regs.length} filas</div></div>`;
+    const der=document.createElement('div');der.style='text-align:right;';
+    der.innerHTML=pago>0?`<span style="background:#4caf7d22;color:#4caf7d;border:1px solid #4caf7d44;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:700;">${fmt(pago)}</span>`:'<span style="color:#666;font-size:12px;">Sin datos</span>';
     der.innerHTML+='<div style="font-size:11px;color:#f5c518;margin-top:4px;">→ planilla</div>';
     card.appendChild(der);
-    (function(nombre){card.onclick=function(){actualizar({verOp:nombre});};})(or);
+    card.onclick=()=>{S.verOp=or;dibujar();};
     wrap.appendChild(card);
   });
   wrap.appendChild(document.createElement('div')).style='height:20px;';
   return wrap;
 }
 
-// TAB REFERENCIAS
-function dibujarTabRefs(){
-  if(ESTADO.verLote){
-    var lote=ESTADO.lotes.find(function(l){return l.id===ESTADO.verLote;});
-    if(lote) return dibujarHojaRef(lote);
+// TAB REFS
+function renderTabRefs(){
+  if(S.verLote){
+    const lote=(S.lotes||[]).find(l=>l.id===S.verLote);
+    if(lote) return renderHojaRef(lote);
   }
-  var wrap=document.createElement('div');
-  wrap.style='padding:14px 14px 0;';
-  
-  var topRow=document.createElement('div');
-  topRow.style='display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;';
-  topRow.innerHTML='<div style="font-weight:800;font-size:16px;">Lotes / Referencias</div>';
-  var btnNuevo=document.createElement('button');
-  btnNuevo.textContent='+ Nuevo lote';
-  btnNuevo.style='background:#f5c518;color:#0d0d10;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;';
-  btnNuevo.onclick=function(){
-    var nom=prompt('Código del lote (ej: DS-0001):');
-    if(!nom||!nom.trim()) return;
-    var lote={id:uid(),nombre:nom.trim().toUpperCase(),fecha:hoy(),operaciones:[]};
-    var masOps=true;
+  const wrap=document.createElement('div');wrap.style='padding:14px 14px 0;';
+  const top=document.createElement('div');top.style='display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;';
+  top.innerHTML='<div style="font-weight:800;font-size:16px;">Lotes / Referencias</div>';
+  const bn=document.createElement('button');bn.textContent='+ Nuevo lote';
+  bn.style='background:#f5c518;color:#0d0d10;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;';
+  bn.onclick=()=>{
+    const nom=prompt('Código del lote (ej: DS-0001):');if(!nom||!nom.trim())return;
+    const lote={id:uid(),nombre:nom.trim().toUpperCase(),fecha:hoy(),operaciones:[]};
+    let masOps=true;
     while(masOps){
-      var opN=prompt('Nombre de operación (deja vacío para terminar):');
-      if(!opN||!opN.trim()){masOps=false;break;}
-      var opP=Number(prompt('Precio por unidad de "'+opN+'":'));
-      var items=[];
-      var masIt=true;
+      const opN=prompt('Nombre de operación (vacío para terminar):');if(!opN||!opN.trim()){masOps=false;break;}
+      const opP=Number(prompt(`Precio por unidad de "${opN}":`));
+      const items=[];let masIt=true;
       while(masIt){
-        var color=prompt('Color (deja vacío para terminar):');
-        if(!color||!color.trim()){masIt=false;break;}
-        var talla=prompt('Talla:');
-        var total=Number(prompt('Cantidad total '+color+' '+talla+':'));
+        const color=prompt('Color (vacío para terminar):');if(!color||!color.trim()){masIt=false;break;}
+        const talla=prompt('Talla:');
+        const total=Number(prompt(`Cantidad total ${color} ${talla}:`));
         items.push({color:color.trim(),talla:talla.trim(),totalUnidades:total});
       }
-      lote.operaciones.push({nombre:opN.trim(),precioUni:opP,items:items});
+      lote.operaciones.push({nombre:opN.trim(),precioUni:opP,items});
     }
-    actualizar({lotes:ESTADO.lotes.concat([lote])});
+    guardar('lotes',[...(S.lotes||[]),lote]);
   };
-  topRow.appendChild(btnNuevo);
-  wrap.appendChild(topRow);
-
-  if(!ESTADO.lotes.length){
-    var vacio=document.createElement('div');
-    vacio.style='text-align:center;color:#666;padding:40px;font-size:13px;';
-    vacio.textContent='No hay lotes. Crea el primero.';
-    wrap.appendChild(vacio);
-  }
-
-  ESTADO.lotes.forEach(function(l){
-    var regs=ESTADO.registros.filter(function(r){return r.lote===l.nombre;});
-    var tI=l.operaciones.reduce(function(s,op){return s+op.items.reduce(function(ss,it){return ss+Number(it.totalUnidades||0);},0);},0);
-    var tR=regs.reduce(function(s,r){return s+Number(r.cant||0);},0);
-    var pct=tI>0?Math.round(tR/tI*100):0;
-    var color=pct>=100?'#4caf7d':pct>0?'#f5c518':'#666';
-    var card=document.createElement('div');
+  top.appendChild(bn);wrap.appendChild(top);
+  if(!(S.lotes||[]).length){const v=document.createElement('div');v.style='text-align:center;color:#666;padding:40px;font-size:13px;';v.textContent='No hay lotes. Crea el primero.';wrap.appendChild(v);}
+  (S.lotes||[]).forEach(l=>{
+    const regs=(S.registros||[]).filter(r=>r.lote===l.nombre);
+    const tI=l.operaciones.reduce((s,op)=>s+op.items.reduce((ss,it)=>ss+Number(it.totalUnidades||0),0),0);
+    const tR=regs.reduce((s,r)=>s+Number(r.cant||0),0);
+    const pct=tI>0?Math.round(tR/tI*100):0;
+    const col=pct>=100?'#4caf7d':pct>0?'#f5c518':'#666';
+    const card=document.createElement('div');
     card.style='background:#16161e;border:1px solid #252535;border-radius:12px;padding:14px;margin-bottom:12px;cursor:pointer;';
-    card.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'+
-      '<div><div style="font-weight:700;font-size:15px;">Lote '+l.nombre+'</div><div style="font-size:11px;color:#666;">'+l.fecha+' · '+l.operaciones.length+' ops</div></div>'+
-      '<div style="text-align:right;"><span style="background:'+color+'22;color:'+color+';border:1px solid '+color+'44;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:700;">'+pct+'% registrado</span>'+
-      '<div style="font-size:11px;color:#f5c518;margin-top:4px;">→ ver hoja</div></div></div>'+
-      '<div style="background:#1c1c26;border-radius:6px;height:6px;overflow:hidden;"><div style="width:'+Math.min(100,pct)+'%;height:100%;background:'+color+';border-radius:6px;"></div></div>';
-    (function(id){card.onclick=function(){actualizar({verLote:id});};})(l.id);
+    card.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><div><div style="font-weight:700;font-size:15px;">Lote ${l.nombre}</div><div style="font-size:11px;color:#666;">${l.fecha} · ${l.operaciones.length} ops</div></div><div style="text-align:right;"><span style="background:${col}22;color:${col};border:1px solid ${col}44;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:700;">${pct}% registrado</span><div style="font-size:11px;color:#f5c518;margin-top:4px;">→ ver hoja</div></div></div><div style="background:#1c1c26;border-radius:6px;height:6px;overflow:hidden;"><div style="width:${Math.min(100,pct)}%;height:100%;background:${col};border-radius:6px;"></div></div>`;
+    card.onclick=()=>{S.verLote=l.id;dibujar();};
     wrap.appendChild(card);
   });
   wrap.appendChild(document.createElement('div')).style='height:20px;';
   return wrap;
 }
 
-// HOJA REFERENCIA
-function dibujarHojaRef(lote){
-  var wrap=document.createElement('div');
-  wrap.style='padding:14px 12px 0;';
-  var hRow=document.createElement('div');
-  hRow.style='display:flex;align-items:center;gap:10px;margin-bottom:14px;';
-  var btnV=document.createElement('button');
-  btnV.textContent='←';btnV.style='background:none;border:none;color:#f5c518;font-size:20px;cursor:pointer;padding:0;';
-  btnV.onclick=function(){actualizar({verLote:null});};
-  hRow.appendChild(btnV);
-  hRow.innerHTML+='<div><div style="font-size:11px;color:#666;text-transform:uppercase;">Hoja de referencia</div><div style="font-weight:800;font-size:17px;">Lote '+lote.nombre+'</div><div style="font-size:11px;color:#666;">'+lote.fecha+'</div></div>';
+// HOJA REF
+function renderHojaRef(lote){
+  const wrap=document.createElement('div');wrap.style='padding:14px 12px 0;';
+  const hRow=document.createElement('div');hRow.style='display:flex;align-items:center;gap:10px;margin-bottom:14px;';
+  const bv=document.createElement('button');bv.textContent='←';bv.style='background:none;border:none;color:#f5c518;font-size:20px;cursor:pointer;padding:0;';bv.onclick=()=>{S.verLote=null;dibujar();};hRow.appendChild(bv);
+  hRow.innerHTML+=`<div><div style="font-size:11px;color:#666;text-transform:uppercase;">Hoja de referencia</div><div style="font-weight:800;font-size:17px;">Lote ${lote.nombre}</div><div style="font-size:11px;color:#666;">${lote.fecha}</div></div>`;
   wrap.appendChild(hRow);
-  var regs=ESTADO.registros.filter(function(r){return r.lote===lote.nombre;});
-  lote.operaciones.forEach(function(op){
-    var card=document.createElement('div');
-    card.style='background:#16161e;border:1px solid #252535;border-radius:12px;padding:14px;margin-bottom:12px;';
-    card.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;"><div style="font-weight:700;font-size:14px;color:#e07b30;">'+op.nombre+'</div><span style="font-size:12px;color:#f5c518;font-weight:700;">'+dinero(op.precioUni)+'/und</span></div>';
-    op.items.forEach(function(it){
-      var rI=regs.filter(function(r){return r.op===op.nombre&&(!it.color||r.color===it.color)&&(!it.talla||r.talla===it.talla);});
-      var suma=rI.reduce(function(s,r){return s+Number(r.cant||0);},0);
-      var ok=it.totalUnidades>0&&suma===it.totalUnidades;
-      var exc=suma>it.totalUnidades&&it.totalUnidades>0;
-      var pct=it.totalUnidades>0?Math.min(100,Math.round(suma/it.totalUnidades*100)):0;
-      var col=ok?'#4caf7d':exc?'#e05555':'#f5c518';
-      var itDiv=document.createElement('div');
-      itDiv.style='background:#1c1c26;border-radius:8px;padding:10px;margin-bottom:8px;border:1px solid '+(ok?'#4caf7d44':exc?'#e0555544':'#252535')+';';
-      itDiv.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'+
-        '<div style="font-size:12px;font-weight:700;">'+(it.color||'Sin color')+' · T'+(it.talla||'Única')+'</div>'+
-        '<span style="background:'+col+'22;color:'+col+';border:1px solid '+col+'44;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:700;">'+nros(suma)+'/'+nros(it.totalUnidades)+' und</span></div>'+
-        '<div style="background:#16161e;border-radius:4px;height:6px;overflow:hidden;margin-bottom:6px;"><div style="width:'+pct+'%;height:100%;background:'+col+';border-radius:4px;"></div></div>';
-      rI.forEach(function(r){
-        var fila=document.createElement('div');
-        fila.style='display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid #25253522;';
-        fila.innerHTML='<span style="color:#666;">'+r.operaria+'</span><span style="font-weight:700;">'+nros(r.cant)+' und</span>';
-        itDiv.appendChild(fila);
-      });
-      if(ok) itDiv.innerHTML+='<div style="font-size:11px;color:#4caf7d;text-align:right;margin-top:4px;">✅ Completo</div>';
-      else if(exc) itDiv.innerHTML+='<div style="font-size:11px;color:#e05555;text-align:right;margin-top:4px;">⚠️ Excede por '+nros(suma-it.totalUnidades)+'</div>';
-      else if(it.totalUnidades>0) itDiv.innerHTML+='<div style="font-size:11px;color:#f5c518;text-align:right;margin-top:4px;">⏳ Faltan '+nros(it.totalUnidades-suma)+'</div>';
+  const regs=(S.registros||[]).filter(r=>r.lote===lote.nombre);
+  lote.operaciones.forEach(op=>{
+    const card=document.createElement('div');card.style='background:#16161e;border:1px solid #252535;border-radius:12px;padding:14px;margin-bottom:12px;';
+    card.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;"><div style="font-weight:700;font-size:14px;color:#e07b30;">${op.nombre}</div><span style="font-size:12px;color:#f5c518;font-weight:700;">${fmt(op.precioUni)}/und</span></div>`;
+    op.items.forEach(it=>{
+      const rI=regs.filter(r=>r.op===op.nombre&&(!it.color||r.color===it.color)&&(!it.talla||r.talla===it.talla));
+      const suma=rI.reduce((s,r)=>s+Number(r.cant||0),0);
+      const ok=it.totalUnidades>0&&suma===it.totalUnidades;
+      const exc=suma>it.totalUnidades&&it.totalUnidades>0;
+      const pct=it.totalUnidades>0?Math.min(100,Math.round(suma/it.totalUnidades*100)):0;
+      const col=ok?'#4caf7d':exc?'#e05555':'#f5c518';
+      const itDiv=document.createElement('div');
+      itDiv.style=`background:#1c1c26;border-radius:8px;padding:10px;margin-bottom:8px;border:1px solid ${ok?'#4caf7d44':exc?'#e0555544':'#252535'};`;
+      itDiv.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><div style="font-size:12px;font-weight:700;">${it.color||'Sin color'} · T${it.talla||'Única'}</div><span style="background:${col}22;color:${col};border:1px solid ${col}44;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:700;">${num(suma)}/${num(it.totalUnidades)} und</span></div><div style="background:#16161e;border-radius:4px;height:6px;overflow:hidden;margin-bottom:6px;"><div style="width:${pct}%;height:100%;background:${col};border-radius:4px;"></div></div>`;
+      rI.forEach(r=>{const f=document.createElement('div');f.style='display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid #25253522;';f.innerHTML=`<span style="color:#666;">${r.operaria}</span><span style="font-weight:700;">${num(r.cant)} und</span>`;itDiv.appendChild(f);});
+      if(ok) itDiv.innerHTML+=`<div style="font-size:11px;color:#4caf7d;text-align:right;margin-top:4px;">✅ Completo</div>`;
+      else if(exc) itDiv.innerHTML+=`<div style="font-size:11px;color:#e05555;text-align:right;margin-top:4px;">⚠️ Excede por ${num(suma-it.totalUnidades)}</div>`;
+      else if(it.totalUnidades>0) itDiv.innerHTML+=`<div style="font-size:11px;color:#f5c518;text-align:right;margin-top:4px;">⏳ Faltan ${num(it.totalUnidades-suma)}</div>`;
       card.appendChild(itDiv);
     });
     wrap.appendChild(card);
   });
-  var btnDel=document.createElement('button');
-  btnDel.textContent='🗑 Eliminar lote';
-  btnDel.style='width:100%;background:transparent;border:1px solid #e0555544;color:#e05555;border-radius:8px;padding:10px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px;';
-  (function(id,nom){btnDel.onclick=function(){if(confirm('¿Eliminar lote '+nom+'?'))actualizar({lotes:ESTADO.lotes.filter(function(l){return l.id!==id;}),registros:ESTADO.registros.filter(function(r){return r.lote!==nom;}),verLote:null});};})(lote.id,lote.nombre);
-  wrap.appendChild(btnDel);
-  wrap.appendChild(document.createElement('div')).style='height:20px;';
+  const bdel=document.createElement('button');bdel.textContent='🗑 Eliminar lote';bdel.style='width:100%;background:transparent;border:1px solid #e0555544;color:#e05555;border-radius:8px;padding:10px;font-size:13px;cursor:pointer;font-family:inherit;margin-top:4px;';
+  bdel.onclick=()=>{if(confirm(`¿Eliminar lote ${lote.nombre}?`)){guardar('lotes',(S.lotes||[]).filter(l=>l.id!==lote.id));guardar('registros',(S.registros||[]).filter(r=>r.lote!==lote.nombre));S.verLote=null;}};
+  wrap.appendChild(bdel);wrap.appendChild(document.createElement('div')).style='height:20px;';
   return wrap;
 }
 
 // TAB RESUMEN
-function dibujarTabResumen(){
-  var corte=function(){var n=new Date(),d=n.getDay(),df=d>=4?d-4:d+3,j=new Date(n);j.setDate(n.getDate()-df);j.setHours(23,59,59,999);return j.toISOString();}();
-  var rC=ESTADO.registros.filter(function(r){return r.fechaISO?r.fechaISO<=corte:true;});
-  var rN=ESTADO.registros.filter(function(r){return r.fechaISO&&r.fechaISO>corte;});
-  var datos=ESTADO.operarias.map(function(or){
-    var regs=rC.filter(function(r){return r.operaria===or;});
-    var sub=regs.reduce(function(s,r){return s+Number(r.cant)*Number(r.precio);},0);
-    var ded=ESTADO.deds[or]||{cot:0,dan:0,des:0};
-    var dT=Number(ded.cot||0)+Number(ded.dan||0)+Number(ded.des||0);
-    var nv=rN.filter(function(r){return r.operaria===or;}).reduce(function(s,r){return s+Number(r.cant)*Number(r.precio);},0);
-    return{nombre:or,sub:sub,dT:dT,pago:sub-dT,nv:nv};
-  }).filter(function(d){return d.sub>0||d.nv>0;});
-  var total=datos.reduce(function(s,d){return s+d.pago;},0);
-  var wrap=document.createElement('div');
-  wrap.style='padding:14px 14px 0;';
-  var topRow=document.createElement('div');
-  topRow.style='display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;';
-  topRow.innerHTML='<div><div style="font-weight:800;font-size:16px;">Pago del jueves</div><div style="font-size:11px;color:#666;">Corte: '+corte.slice(0,10)+'</div></div>';
-  var der=document.createElement('div');
-  der.style='display:flex;flex-direction:column;align-items:flex-end;gap:6px;';
-  der.innerHTML='<span style="background:#f5c51822;color:#f5c518;border:1px solid #f5c51844;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:700;">'+dinero(total)+'</span>';
-  var btnExp=document.createElement('button');
-  btnExp.textContent='⬇️ Exportar';
-  btnExp.style='background:transparent;color:#f5c518;border:1px solid #f5c518;border-radius:8px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;';
-  btnExp.onclick=function(){
-    var txt='PAGO JUEVES\nCorte: '+corte.slice(0,10)+'\n'+Array(41).join('─')+'\n';
-    datos.forEach(function(d){if(!d.sub)return;txt+='\n'+d.nombre.toUpperCase()+'\n  Sub: '+dinero(d.sub)+'\n';if(d.dT)txt+='  Deds: -'+dinero(d.dT)+'\n';txt+='  PAGO: '+dinero(d.pago)+'\n';if(d.nv)txt+='  (Próximo: '+dinero(d.nv)+')\n';});
-    txt+='\n'+Array(41).join('─')+'\nTOTAL: '+dinero(total)+'\n';
-    var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([txt],{type:'text/plain'}));a.download='pago_'+corte.slice(0,10)+'.txt';a.click();
+function renderTabResumen(){
+  const corte=(()=>{const n=new Date(),d=n.getDay(),df=d>=4?d-4:d+3,j=new Date(n);j.setDate(n.getDate()-df);j.setHours(23,59,59,999);return j.toISOString();})();
+  const rC=(S.registros||[]).filter(r=>r.fechaISO?r.fechaISO<=corte:true);
+  const rN=(S.registros||[]).filter(r=>r.fechaISO&&r.fechaISO>corte);
+  const datos=(S.operarias||[]).map(or=>{
+    const regs=rC.filter(r=>r.operaria===or);
+    const sub=regs.reduce((s,r)=>s+Number(r.cant)*Number(r.precio),0);
+    const d=(S.deds||{})[or]||{cot:0,dan:0,des:0};
+    const dT=Number(d.cot||0)+Number(d.dan||0)+Number(d.des||0);
+    const nv=rN.filter(r=>r.operaria===or).reduce((s,r)=>s+Number(r.cant)*Number(r.precio),0);
+    return{nombre:or,sub,dT,pago:sub-dT,nv};
+  }).filter(d=>d.sub>0||d.nv>0);
+  const total=datos.reduce((s,d)=>s+d.pago,0);
+  const wrap=document.createElement('div');wrap.style='padding:14px 14px 0;';
+  const top=document.createElement('div');top.style='display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;';
+  top.innerHTML=`<div><div style="font-weight:800;font-size:16px;">Pago del jueves</div><div style="font-size:11px;color:#666;">Corte: ${corte.slice(0,10)}</div></div>`;
+  const der=document.createElement('div');der.style='display:flex;flex-direction:column;align-items:flex-end;gap:6px;';
+  der.innerHTML=`<span style="background:#f5c51822;color:#f5c518;border:1px solid #f5c51844;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:700;">${fmt(total)}</span>`;
+  const bexp=document.createElement('button');bexp.textContent='⬇️ Exportar';bexp.style='background:transparent;color:#f5c518;border:1px solid #f5c518;border-radius:8px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;';
+  bexp.onclick=()=>{
+    let txt=`PAGO JUEVES\nCorte: ${corte.slice(0,10)}\n${Array(41).join('─')}\n`;
+    datos.forEach(d=>{if(!d.sub)return;txt+=`\n${d.nombre.toUpperCase()}\n  Sub: ${fmt(d.sub)}\n`;if(d.dT)txt+=`  Deds: -${fmt(d.dT)}\n`;txt+=`  PAGO: ${fmt(d.pago)}\n`;if(d.nv)txt+=`  (Próximo: ${fmt(d.nv)})\n`;});
+    txt+=`\n${Array(41).join('─')}\nTOTAL: ${fmt(total)}\n`;
+    const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([txt],{type:'text/plain'}));a.download=`pago_${corte.slice(0,10)}.txt`;a.click();
   };
-  der.appendChild(btnExp);
-  topRow.appendChild(der);
-  wrap.appendChild(topRow);
-  var aviso=document.createElement('div');
-  aviso.style='background:#4a9eff18;border:1px solid #4a9eff44;border-radius:10px;padding:8px 12px;margin-bottom:14px;font-size:12px;color:#4a9eff;';
-  aviso.innerHTML='⏰ Solo se paga hasta el <b>jueves a medianoche</b>. Lo nuevo acumula para el próximo.';
-  wrap.appendChild(aviso);
-  if(!datos.length){var v=document.createElement('div');v.style='text-align:center;color:#666;padding:50px;';v.textContent='Sin registros en este período.';wrap.appendChild(v);}
-  datos.forEach(function(d){
-    var card=document.createElement('div');
-    card.style='background:#16161e;border:1px solid #252535;border-radius:12px;padding:14px;margin-bottom:12px;';
-    card.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'+
-      '<div style="font-weight:700;font-size:15px;">'+d.nombre+'</div>'+
-      '<span style="background:'+(d.pago>0?'#4caf7d':'#666')+'22;color:'+(d.pago>0?'#4caf7d':'#666')+';border:1px solid '+(d.pago>0?'#4caf7d':'#666')+'44;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:700;">'+dinero(d.pago)+'</span></div>'+
-      '<div style="display:flex;flex-wrap:wrap;gap:6px;font-size:12px;color:#666;">'+
-      (d.sub>0?'<span>Sub: '+dinero(d.sub)+'</span>':'')+
-      (d.dT>0?'<span style="color:#e05555;">Deds: -'+dinero(d.dT)+'</span>':'')+
-      (d.nv>0?'<span style="color:#f5c518;">▶ Próx: '+dinero(d.nv)+'</span>':'')+
-      '</div>';
+  der.appendChild(bexp);top.appendChild(der);wrap.appendChild(top);
+  const av=document.createElement('div');av.style='background:#4a9eff18;border:1px solid #4a9eff44;border-radius:10px;padding:8px 12px;margin-bottom:14px;font-size:12px;color:#4a9eff;';
+  av.innerHTML='⏰ Solo se paga hasta el <b>jueves a medianoche</b>. Lo nuevo acumula para el próximo.';wrap.appendChild(av);
+  if(!datos.length){const v=document.createElement('div');v.style='text-align:center;color:#666;padding:50px;';v.textContent='Sin registros en este período.';wrap.appendChild(v);}
+  datos.forEach(d=>{
+    const card=document.createElement('div');card.style='background:#16161e;border:1px solid #252535;border-radius:12px;padding:14px;margin-bottom:12px;';
+    card.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><div style="font-weight:700;font-size:15px;">${d.nombre}</div><span style="background:${d.pago>0?'#4caf7d':'#666'}22;color:${d.pago>0?'#4caf7d':'#666'};border:1px solid ${d.pago>0?'#4caf7d':'#666'}44;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:700;">${fmt(d.pago)}</span></div><div style="display:flex;flex-wrap:wrap;gap:6px;font-size:12px;color:#666;">${d.sub>0?`<span>Sub: ${fmt(d.sub)}</span>`:''}${d.dT>0?`<span style="color:#e05555;">Deds: -${fmt(d.dT)}</span>`:''}${d.nv>0?`<span style="color:#f5c518;">▶ Próx: ${fmt(d.nv)}</span>`:''}</div>`;
     wrap.appendChild(card);
   });
   wrap.appendChild(document.createElement('div')).style='height:20px;';
@@ -665,90 +491,56 @@ function dibujarTabResumen(){
 }
 
 // TAB CONFIG
-function dibujarTabCfg(){
-  var wrap=document.createElement('div');
-  wrap.style='padding:14px 14px 0;';
-  
+function renderTabCfg(){
+  const wrap=document.createElement('div');wrap.style='padding:14px 14px 0;';
   // PIN Admin
-  var pinCard=document.createElement('div');
-  pinCard.style='background:#16161e;border:1px solid #f5c51844;border-radius:12px;padding:14px;margin-bottom:16px;';
-  pinCard.innerHTML='<div style="font-weight:700;font-size:14px;color:#f5c518;margin-bottom:10px;">🔐 PIN Administrador</div>'+
-    '<div style="letter-spacing:6px;font-size:20px;font-weight:700;margin-bottom:8px;">'+ESTADO.pinAdmin+'</div>';
-  var inpAP=document.createElement('input');
-  inpAP.type='number';inpAP.placeholder='Nuevo PIN 4 dígitos';
+  const pc=document.createElement('div');pc.style='background:#16161e;border:1px solid #f5c51844;border-radius:12px;padding:14px;margin-bottom:16px;';
+  pc.innerHTML=`<div style="font-weight:700;font-size:14px;color:#f5c518;margin-bottom:10px;">🔐 PIN Administrador</div><div style="letter-spacing:6px;font-size:20px;font-weight:700;margin-bottom:8px;">${S.cfg.pinAdmin}</div>`;
+  const inpAP=document.createElement('input');inpAP.type='number';inpAP.placeholder='Nuevo PIN 4 dígitos';
   inpAP.style='background:#0d0d10;border:1px solid #252535;border-radius:6px;color:#f0ede8;outline:none;padding:9px 11px;font-size:14px;width:100%;margin-bottom:8px;font-family:inherit;';
-  inpAP.oninput=function(){if(inpAP.value.length>4)inpAP.value=inpAP.value.slice(0,4);};
-  var btnAP=document.createElement('button');
-  btnAP.textContent='Cambiar PIN';
-  btnAP.style='background:#f5c518;color:#0d0d10;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;width:100%;font-family:inherit;';
-  btnAP.onclick=function(){if(inpAP.value.length===4){actualizar({pinAdmin:inpAP.value});inpAP.value='';alert('PIN cambiado ✅');}else alert('PIN debe tener 4 dígitos');};
-  pinCard.appendChild(inpAP);pinCard.appendChild(btnAP);
-  wrap.appendChild(pinCard);
-
+  inpAP.oninput=()=>{if(inpAP.value.length>4)inpAP.value=inpAP.value.slice(0,4);};
+  const bAP=document.createElement('button');bAP.textContent='Cambiar PIN';bAP.style='background:#f5c518;color:#0d0d10;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;width:100%;font-family:inherit;';
+  bAP.onclick=()=>{if(inpAP.value.length===4){guardar('cfg',{...S.cfg,pinAdmin:inpAP.value});inpAP.value='';}else alert('PIN debe tener 4 dígitos');};
+  pc.appendChild(inpAP);pc.appendChild(bAP);wrap.appendChild(pc);
   // PINs operarias
-  var titOp=document.createElement('div');
-  titOp.style='font-weight:700;font-size:14px;color:#f5c518;margin-bottom:10px;';
-  titOp.textContent='👷 PINs confeccionistas';
-  wrap.appendChild(titOp);
-  ESTADO.operarias.forEach(function(or){
-    var card=document.createElement('div');
-    card.style='background:#16161e;border:1px solid #252535;border-radius:12px;padding:10px 14px;margin-bottom:10px;';
-    card.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'+
-      '<div><div style="font-weight:700;font-size:14px;">'+or+'</div>'+
-      '<div style="font-size:11px;color:#666;">PIN: <b style="color:'+(ESTADO.pines[or]?'#4caf7d':'#e05555')+';letter-spacing:3px;">'+(ESTADO.pines[or]||'Sin PIN')+'</b></div></div>';
-    var btnQ=document.createElement('button');
-    btnQ.textContent='Quitar';
-    btnQ.style='background:none;border:1px solid #e0555544;color:#e05555;border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;font-family:inherit;';
-    (function(nombre){btnQ.onclick=function(){if(confirm('¿Quitar a '+nombre+'?'))actualizar({operarias:ESTADO.operarias.filter(function(o){return o!==nombre;})});};})(or);
-    card.appendChild(btnQ);
-    card.innerHTML+='</div>';
-    var inpP=document.createElement('input');
-    inpP.type='number';inpP.placeholder='Nuevo PIN 4 dígitos';
+  wrap.innerHTML+='<div style="font-weight:700;font-size:14px;color:#f5c518;margin-bottom:10px;">👷 PINs confeccionistas</div>';
+  (S.operarias||[]).forEach(or=>{
+    const card=document.createElement('div');card.style='background:#16161e;border:1px solid #252535;border-radius:12px;padding:10px 14px;margin-bottom:10px;';
+    const pines=S.cfg.pines||{};
+    card.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><div><div style="font-weight:700;font-size:14px;">${or}</div><div style="font-size:11px;color:#666;">PIN: <b style="color:${pines[or]?'#4caf7d':'#e05555'};letter-spacing:3px;">${pines[or]||'Sin PIN'}</b></div></div>`;
+    const bq=document.createElement('button');bq.textContent='Quitar';bq.style='background:none;border:1px solid #e0555544;color:#e05555;border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;font-family:inherit;';
+    bq.onclick=()=>{if(confirm(`¿Quitar a ${or}?`))guardar('operarias',(S.operarias||[]).filter(o=>o!==or));};
+    card.appendChild(bq);card.innerHTML+='</div>';
+    const inpP=document.createElement('input');inpP.type='number';inpP.placeholder='Nuevo PIN 4 dígitos';
     inpP.style='background:#0d0d10;border:1px solid #252535;border-radius:6px;color:#f0ede8;outline:none;padding:6px 8px;font-size:12px;flex:1;font-family:inherit;';
-    inpP.oninput=function(){if(inpP.value.length>4)inpP.value=inpP.value.slice(0,4);};
-    var btnP=document.createElement('button');
-    btnP.textContent='Asignar';
-    btnP.style='background:#1c1c26;color:#f5c518;border:1px solid #f5c51844;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;';
-    (function(nombre,inp){btnP.onclick=function(){if(inp.value.length===4){var np=Object.assign({},ESTADO.pines);np[nombre]=inp.value;actualizar({pines:np});inp.value='';alert('PIN asignado a '+nombre+' ✅');}else alert('PIN debe tener 4 dígitos');};})(or,inpP);
-    var rowP=document.createElement('div');
-    rowP.style='display:flex;gap:8px;';
-    rowP.appendChild(inpP);rowP.appendChild(btnP);
-    card.appendChild(rowP);
+    inpP.oninput=()=>{if(inpP.value.length>4)inpP.value=inpP.value.slice(0,4);};
+    const bP=document.createElement('button');bP.textContent='Asignar';bP.style='background:#1c1c26;color:#f5c518;border:1px solid #f5c51844;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;';
+    bP.onclick=()=>{
+      if(inpP.value.length===4){
+        const np={...(S.cfg.pines||{}),[or]:inpP.value};
+        guardar('cfg',{...S.cfg,pines:np});
+        inpP.value='';
+      }else alert('PIN debe tener 4 dígitos');
+    };
+    const row=document.createElement('div');row.style='display:flex;gap:8px;';row.appendChild(inpP);row.appendChild(bP);card.appendChild(row);
     wrap.appendChild(card);
   });
-
   // Nueva operaria
-  var titN=document.createElement('div');
-  titN.style='font-weight:700;font-size:13px;color:#666;margin-bottom:8px;margin-top:4px;';
-  titN.textContent='+ Nueva confeccionista';
-  wrap.appendChild(titN);
-  var inpN=document.createElement('input');
-  inpN.type='text';inpN.placeholder='Nombre completo';
+  wrap.innerHTML+='<div style="font-weight:700;font-size:13px;color:#666;margin-bottom:8px;margin-top:4px;">+ Nueva confeccionista</div>';
+  const inpN=document.createElement('input');inpN.type='text';inpN.placeholder='Nombre completo';
   inpN.style='background:#0d0d10;border:1px solid #252535;border-radius:6px;color:#f0ede8;outline:none;padding:9px 11px;font-size:14px;width:100%;margin-bottom:8px;font-family:inherit;';
   wrap.appendChild(inpN);
-  var btnN=document.createElement('button');
-  btnN.textContent='+ Agregar';
-  btnN.style='background:transparent;color:#f5c518;border:1px solid #f5c518;border-radius:8px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;width:100%;margin-bottom:20px;font-family:inherit;';
-  btnN.onclick=function(){if(inpN.value.trim()&&ESTADO.operarias.indexOf(inpN.value.trim())<0){actualizar({operarias:ESTADO.operarias.concat([inpN.value.trim()])});inpN.value='';}};
-  wrap.appendChild(btnN);
-
+  const bN=document.createElement('button');bN.textContent='+ Agregar';bN.style='background:transparent;color:#f5c518;border:1px solid #f5c518;border-radius:8px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;width:100%;margin-bottom:20px;font-family:inherit;';
+  bN.onclick=()=>{if(inpN.value.trim()&&!(S.operarias||[]).includes(inpN.value.trim())){guardar('operarias',[...(S.operarias||[]),inpN.value.trim()]);inpN.value='';}};
+  wrap.appendChild(bN);
   // Limpiar
-  var limpCard=document.createElement('div');
-  limpCard.style='background:#16161e;border:1px solid #252535;border-radius:12px;padding:14px;';
-  limpCard.innerHTML='<div style="font-weight:700;font-size:14px;color:#f5c518;margin-bottom:6px;">🗑 Nueva semana</div>'+
-    '<div style="font-size:12px;color:#666;margin-bottom:10px;">Limpia registros y lotes para empezar de nuevo.</div>';
-  var btnL=document.createElement('button');
-  btnL.textContent='Limpiar para nueva semana';
-  btnL.style='width:100%;background:transparent;border:1px solid #e05555;color:#e05555;border-radius:8px;padding:10px;font-size:13px;cursor:pointer;font-family:inherit;';
-  btnL.onclick=function(){if(confirm('¿Limpiar TODO? No se puede deshacer.')){actualizar({registros:[],lotes:[],deds:{}});alert('Limpiado ✅');}};
-  limpCard.appendChild(btnL);
-  wrap.appendChild(limpCard);
-  wrap.appendChild(document.createElement('div')).style='height:20px;';
+  const lc2=document.createElement('div');lc2.style='background:#16161e;border:1px solid #252535;border-radius:12px;padding:14px;';
+  lc2.innerHTML='<div style="font-weight:700;font-size:14px;color:#f5c518;margin-bottom:6px;">🗑 Nueva semana</div><div style="font-size:12px;color:#666;margin-bottom:10px;">Limpia registros y lotes para empezar de nuevo.</div>';
+  const bL=document.createElement('button');bL.textContent='Limpiar para nueva semana';bL.style='width:100%;background:transparent;border:1px solid #e05555;color:#e05555;border-radius:8px;padding:10px;font-size:13px;cursor:pointer;font-family:inherit;';
+  bL.onclick=()=>{if(confirm('¿Limpiar TODO? No se puede deshacer.')){guardar('registros',[]);guardar('lotes',[]);guardar('deds',{});}};
+  lc2.appendChild(bL);wrap.appendChild(lc2);wrap.appendChild(document.createElement('div')).style='height:20px;';
   return wrap;
 }
-
-// INICIAR
-dibujar();
 </script>
 </body>
 </html>
